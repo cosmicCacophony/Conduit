@@ -1,0 +1,255 @@
+.app-shell {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+}
+
+.app-frame {
+  width: min(1040px, 100%);
+  border: 1px solid var(--border);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(10px);
+}
+
+.screen {
+  padding: 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.screen--title {
+  min-height: 70vh;
+  justify-content: center;
+}
+
+.eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.24em;
+  font-size: 0.72rem;
+  color: var(--accent-soft);
+}
+
+.lede,
+.screen-copy {
+  max-width: 60ch;
+}
+
+.muted {
+  color: var(--text-muted);
+}
+
+.primary-button,
+.secondary-button,
+.choice-button,
+.target-button {
+  border: 1px solid var(--border);
+  background: var(--button);
+  color: var(--text-strong);
+  padding: 12px 16px;
+  font: inherit;
+  cursor: pointer;
+  transition:
+    transform 120ms ease,
+    border-color 120ms ease,
+    background 120ms ease;
+}
+
+.primary-button:hover,
+.secondary-button:hover,
+.choice-button:hover,
+.target-button:hover {
+  transform: translateY(-1px);
+  border-color: var(--accent);
+}
+
+.primary-button:disabled,
+.secondary-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  transform: none;
+}
+
+.primary-button {
+  background: var(--accent);
+  color: #111015;
+  border-color: transparent;
+  align-self: flex-start;
+}
+
+.secondary-button,
+.choice-button,
+.target-button {
+  background: transparent;
+}
+
+.choice-button.is-selected {
+  border-color: var(--accent);
+  background: var(--button-selected);
+}
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.creature-card {
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text-strong);
+  text-align: left;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  cursor: pointer;
+  min-height: 206px;
+}
+
+.creature-card.is-selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.creature-card.is-disabled {
+  opacity: 0.45;
+}
+
+.creature-card.is-compact {
+  min-height: 0;
+}
+
+.creature-card__header {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.creature-card__header h3,
+.combat-column h3,
+.log-panel h3,
+.summary-list h3 {
+  margin: 0;
+}
+
+.creature-card__header p,
+.creature-card__special,
+.creature-card__stats {
+  color: var(--text-muted);
+}
+
+.creature-card__emoji {
+  font-size: 2rem;
+}
+
+.creature-card__stats,
+.creature-card__special,
+.choice-row,
+.target-list,
+.summary-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.creature-card__stats span,
+.creature-card__special span {
+  background: var(--pill);
+  padding: 4px 8px;
+}
+
+.creature-card__special {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.hp-bar {
+  height: 10px;
+  background: var(--hp-track);
+  overflow: hidden;
+}
+
+.hp-bar span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--hp-fill), #94f6c8);
+}
+
+.combat-header,
+.combat-layout,
+.log-panel,
+.target-panel,
+.summary-card,
+.summary-list {
+  border: 1px solid var(--border);
+  background: var(--card);
+  padding: 16px;
+}
+
+.combat-layout {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr;
+  gap: 16px;
+}
+
+.combat-column {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.combat-column--enemy {
+  justify-content: flex-start;
+}
+
+.combat-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.log-panel ul,
+.summary-list ul {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.summary-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: center;
+}
+
+.summary-card strong {
+  font-size: 2rem;
+  color: var(--text-strong);
+}
+
+@media (max-width: 800px) {
+  .screen {
+    padding: 24px 18px;
+  }
+
+  .combat-layout,
+  .summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .primary-button {
+    width: 100%;
+    justify-content: center;
+  }
+}

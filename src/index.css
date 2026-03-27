@@ -1,0 +1,82 @@
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=Manrope:wght@400;500;600;700&display=swap');
+
+:root {
+  font-family: 'Manrope', sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color: #d8d2dc;
+  background:
+    radial-gradient(circle at top, rgba(120, 98, 174, 0.28), transparent 28%),
+    linear-gradient(180deg, #121018 0%, #0a0910 100%);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  --bg: #0d0b12;
+  --panel: rgba(14, 13, 20, 0.82);
+  --card: rgba(24, 20, 34, 0.9);
+  --button: rgba(27, 23, 38, 0.88);
+  --button-selected: rgba(118, 97, 174, 0.22);
+  --pill: rgba(72, 61, 103, 0.45);
+  --border: rgba(164, 145, 205, 0.22);
+  --accent: #b8a6ff;
+  --accent-soft: #8f82b8;
+  --text-strong: #f3edf7;
+  --text-muted: #aaa0b7;
+  --hp-track: rgba(255, 255, 255, 0.08);
+  --hp-fill: #76c2a5;
+  --shadow: 0 28px 64px rgba(0, 0, 0, 0.36);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+h1,
+h2,
+h3 {
+  font-family: 'Cormorant Garamond', serif;
+  font-weight: 600;
+  line-height: 1.05;
+  letter-spacing: 0.01em;
+  color: var(--text-strong);
+  margin: 0;
+}
+
+h1 {
+  font-size: clamp(3.4rem, 10vw, 5.6rem);
+}
+
+h2 {
+  font-size: clamp(2rem, 6vw, 3.2rem);
+}
+
+h3 {
+  font-size: 1.5rem;
+}
+
+p {
+  margin: 0;
+}
+
+a {
+  color: inherit;
+}
