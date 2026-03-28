@@ -33,6 +33,10 @@ export function GameOverScreen({ result, roster, stats, onRestart }: GameOverScr
           <strong>{stats.recruited.length}</strong>
           <span>Creatures recruited</span>
         </div>
+        <div className="summary-card">
+          <strong>{stats.encountersCleared}</strong>
+          <span>Encounters cleared</span>
+        </div>
       </div>
 
       <div className="summary-list">

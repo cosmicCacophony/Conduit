@@ -1,29 +1,71 @@
-import { useEffect } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import './App.css'
+import { playSoundCue } from './audio'
 import { CombatScreen } from './components/CombatScreen'
 import { GameOverScreen } from './components/GameOverScreen'
 import { RecruitScreen } from './components/RecruitScreen'
+import { RestScreen } from './components/RestScreen'
 import { RewardScreen } from './components/RewardScreen'
 import { TeamSelectScreen } from './components/TeamSelectScreen'
 import { TitleScreen } from './components/TitleScreen'
 import { useGameState } from './hooks/useGameState'
-import type { RewardType } from './types'
+import { getRunHistorySummary, readRunHistory, writeRunHistory } from './storage'
+import type { RewardType, RunHistoryEntry } from './types'
 
 function App() {
   const { state, dispatch, availableCreatures, selectedTeam } = useGameState()
+  const [history] = useState<RunHistoryEntry[]>(() => readRunHistory())
+  const savedRunRef = useRef<string | null>(null)
+  const playedEffectRef = useRef<number | null>(null)
 
   useEffect(() => {
-    if (state.phase !== 'combat' || state.combatTurn !== 'enemy' || !state.enemy) {
+    if (state.phase !== 'combat' || state.combatTurn !== 'enemy' || state.enemies.length === 0) {
       return
     }
 
     const timeout = window.setTimeout(() => {
       dispatch({ type: 'ENEMY_TURN' })
-    }, 650)
+    }, 900)
 
     return () => window.clearTimeout(timeout)
-  }, [dispatch, state.combatTurn, state.enemy, state.phase])
+  }, [dispatch, state.combatTurn, state.enemies.length, state.phase])
+
+  useEffect(() => {
+    if (!state.lastEffect || playedEffectRef.current === state.lastEffect.tick) {
+      return
+    }
+
+    playedEffectRef.current = state.lastEffect.tick
+    playSoundCue(state.lastEffect.sound)
+  }, [state.lastEffect])
+
+  useEffect(() => {
+    if (state.phase !== 'victory' && state.phase !== 'defeat') {
+      savedRunRef.current = null
+      return
+    }
+
+    const runKey = `${state.phase}-${state.stats.fightsWon}-${state.stats.encountersCleared}-${state.stats.boostsGiven}`
+    if (savedRunRef.current === runKey) {
+      return
+    }
+
+    const nextEntry: RunHistoryEntry = {
+      timestamp: Date.now(),
+      result: state.phase,
+      fightsWon: state.stats.fightsWon,
+      boostsGiven: state.stats.boostsGiven,
+      encountersCleared: state.stats.encountersCleared,
+      recruited: state.stats.recruited,
+      rosterSnapshot: state.roster.map((creature) => `${creature.name} (${creature.currentHp}/${creature.maxHp})`),
+    }
+    const nextHistory = [...history, nextEntry]
+    writeRunHistory(nextHistory)
+    savedRunRef.current = runKey
+  }, [history, state.phase, state.roster, state.stats])
+
+  const historySummary = useMemo(() => getRunHistorySummary(history), [history])
 
   function handleReward(creatureId: string, reward: RewardType) {
     dispatch({ type: 'APPLY_REWARD', creatureId, reward })
@@ -43,7 +85,7 @@ function App() {
   function renderScreen() {
     switch (state.phase) {
       case 'title':
-        return <TitleScreen onStart={() => dispatch({ type: 'START_RUN' })} />
+        return <TitleScreen onStart={() => dispatch({ type: 'START_RUN' })} summary={historySummary} />
 
       case 'teamSelect':
         return (
@@ -56,24 +98,33 @@ function App() {
         )
 
       case 'combat':
-        if (!state.enemy) {
+        if (state.enemies.length === 0) {
           return null
         }
 
         return (
           <CombatScreen
             team={selectedTeam}
-            enemy={state.enemy}
+            enemies={state.enemies}
             combatTurn={state.combatTurn}
+            actedCreatureIds={state.actedCreatureIds}
             combatLog={state.combatLog}
-            onAction={(creatureId, action, targetId) =>
-              dispatch({ type: 'PLAYER_ACTION', creatureId, action, targetId })
+            lastEffect={state.lastEffect}
+            onAction={(creatureId, action, specialIndex, targetId) =>
+              dispatch({ type: 'PLAYER_ACTION', creatureId, action, specialIndex, targetId })
             }
           />
         )
 
       case 'reward':
-        return <RewardScreen creatures={selectedTeam} onApply={handleReward} />
+        return (
+          <RewardScreen
+            rewardTier={state.rewardTier}
+            creatures={state.roster}
+            learnOffers={state.learnOffers}
+            onApply={handleReward}
+          />
+        )
 
       case 'recruit':
         return (
@@ -82,6 +133,14 @@ function App() {
             creatures={state.recruitOffer}
             onRecruit={handleRecruit}
             onSkip={handleSkipRecruit}
+          />
+        )
+
+      case 'rest':
+        return (
+          <RestScreen
+            encounterText={state.encounterText}
+            onContinue={() => dispatch({ type: 'REST_AND_CONTINUE' })}
           />
         )
 

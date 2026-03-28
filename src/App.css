@@ -98,6 +98,7 @@
 }
 
 .creature-card {
+  position: relative;
   border: 1px solid var(--border);
   background: var(--card);
   color: var(--text-strong);
@@ -167,6 +168,21 @@
   align-items: flex-start;
 }
 
+.creature-card__special-row,
+.creature-card__intent,
+.creature-card__footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.creature-card__intent span,
+.creature-card__footer span {
+  background: rgba(255, 255, 255, 0.04);
+  padding: 5px 8px;
+  color: var(--text-muted);
+}
+
 .hp-bar {
   height: 10px;
   background: var(--hp-track);
@@ -177,6 +193,7 @@
   display: block;
   height: 100%;
   background: linear-gradient(90deg, var(--hp-fill), #94f6c8);
+  transition: width 300ms ease;
 }
 
 .combat-header,
@@ -196,6 +213,10 @@
   gap: 16px;
 }
 
+.combat-layout.is-shaking {
+  animation: combatShake 220ms ease;
+}
+
 .combat-column {
   display: flex;
   flex-direction: column;
@@ -212,6 +233,31 @@
   flex-wrap: wrap;
 }
 
+.reward-panel,
+.upgrade-card {
+  border: 1px solid var(--border);
+  background: var(--card);
+  padding: 16px;
+}
+
+.reward-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.upgrade-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.upgrade-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .log-panel ul,
 .summary-list ul {
   margin: 0;
@@ -223,7 +269,7 @@
 
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .summary-card {
@@ -236,6 +282,60 @@
 .summary-card strong {
   font-size: 2rem;
   color: var(--text-strong);
+}
+
+.title-summary {
+  max-width: 720px;
+}
+
+.combat-float {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  padding: 6px 10px;
+  background: rgba(10, 9, 16, 0.92);
+  border: 1px solid var(--border);
+  animation: fadeUp 850ms ease forwards;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.combat-float--heal,
+.combat-float--shield,
+.combat-float--buff {
+  color: #9af2c7;
+}
+
+.combat-float--damage {
+  color: #ffb7b7;
+}
+
+@keyframes fadeUp {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  15% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-14px);
+  }
+}
+
+@keyframes combatShake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-6px);
+  }
+  75% {
+    transform: translateX(6px);
+  }
 }
 
 @media (max-width: 800px) {
