@@ -23,7 +23,8 @@ export function RecruitScreen({
       <p className="eyebrow">Recruitment</p>
       <h2>The island offers a choice</h2>
       <p className="screen-copy">{encounterText}</p>
-      <p className="screen-copy muted">Recruiting also restores 3 HP to your full roster.</p>
+      <p className="screen-copy muted">The voice returns: "They do not belong to you. They choose to remain."</p>
+      <p className="screen-copy muted">Recruiting restores 3 HP to each living creature in your roster.</p>
 
       <div className="card-grid">
         {creatures.map((creature) => (

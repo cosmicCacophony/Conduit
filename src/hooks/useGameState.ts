@@ -139,15 +139,7 @@ function createRecruitOffer(roster: Creature[]): Creature[] {
 }
 
 function createAvailableCreatureIds(roster: Creature[]): string[] {
-  const livingRoster = getLivingCreatures(roster)
-
-  if (livingRoster.length <= 3) {
-    return livingRoster.map((creature) => creature.id)
-  }
-
-  return shuffle(livingRoster)
-    .slice(0, 3)
-    .map((creature) => creature.id)
+  return getLivingCreatures(roster).map((creature) => creature.id)
 }
 
 function createLearnOffers(roster: Creature[]): Record<string, SpecialTemplate | null> {
@@ -971,7 +963,8 @@ function reducer(state: GameState, action: GameAction): GameState {
 
       const healedRoster = state.roster.map((creature) => ({
         ...creature,
-        currentHp: Math.min(creature.maxHp, creature.currentHp + 3),
+        currentHp:
+          creature.currentHp > 0 ? Math.min(creature.maxHp, creature.currentHp + 3) : creature.currentHp,
       }))
 
       return {
@@ -997,7 +990,10 @@ function reducer(state: GameState, action: GameAction): GameState {
     case 'REST_AND_CONTINUE': {
       const restedRoster = state.roster.map((creature) => ({
         ...creature,
-        currentHp: Math.min(creature.maxHp, creature.currentHp + Math.ceil(creature.maxHp * 0.4)),
+        currentHp:
+          creature.currentHp > 0
+            ? Math.min(creature.maxHp, creature.currentHp + Math.ceil(creature.maxHp * 0.4))
+            : creature.currentHp,
       }))
       const nextStats = {
         ...state.stats,

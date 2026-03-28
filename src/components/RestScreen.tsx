@@ -9,7 +9,8 @@ export function RestScreen({ encounterText, onContinue }: RestScreenProps) {
       <p className="eyebrow">Rest</p>
       <h2>A little stillness</h2>
       <p className="screen-copy">{encounterText}</p>
-      <p className="screen-copy muted">All creatures heal 40% of their maximum HP.</p>
+      <p className="screen-copy muted">The hush gathers close: "Stillness is also a kind of answer."</p>
+      <p className="screen-copy muted">Each living creature heals 40% of its maximum HP.</p>
       <button className="primary-button" type="button" onClick={onContinue}>
         Breathe and continue
       </button>

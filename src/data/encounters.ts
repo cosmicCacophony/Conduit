@@ -4,14 +4,14 @@ export const ENCOUNTERS: EncounterDefinition[] = [
   {
     id: 'shoreline-skirmish',
     type: 'fight',
-    text: 'Something stirs in the undergrowth.',
+    text: 'Something stirs in the undergrowth, as though the island is listening.',
     enemyGroupPool: ['brambleSolo', 'galeSolo'],
     rewardTier: 'normal',
   },
   {
     id: 'first-duo',
     type: 'fight',
-    text: 'Two shapes move together through the haze.',
+    text: 'Two shapes move together through the haze, answering the same pull.',
     enemyGroupPool: ['brambleGale'],
     rewardTier: 'normal',
   },
@@ -23,7 +23,7 @@ export const ENCOUNTERS: EncounterDefinition[] = [
   {
     id: 'elite-watch',
     type: 'elite',
-    text: 'The island focuses its weight on you.',
+    text: 'The island focuses its weight on you, as if measuring what you can carry.',
     enemyGroupPool: ['elitePoolA', 'elitePoolB'],
     rewardTier: 'elite',
   },
@@ -33,21 +33,23 @@ export const ENCOUNTERS: EncounterDefinition[] = [
     text: 'The island offers a moment of stillness.',
   },
   {
-    id: 'second-recruit',
-    type: 'recruit',
-    text: 'Another call answers yours from deeper inland.',
-  },
-  {
     id: 'gauntlet',
     type: 'fight',
-    text: 'The mist parts. A pair already waits for you.',
-    enemyGroupPool: ['mireHollow', 'brambleGale'],
+    text: 'The mist parts. A pair already waits, as though they knew your steps.',
+    enemyGroupPool: ['brambleGale'],
+    rewardTier: 'normal',
+  },
+  {
+    id: 'last-watch',
+    type: 'fight',
+    text: 'Deeper inland, the island tests what remains. Nothing here expects all of you to survive.',
+    enemyGroupPool: ['mireHollow'],
     rewardTier: 'normal',
   },
   {
     id: 'warden',
     type: 'boss',
-    text: 'The Warden waits where the shoreline fades into mist.',
+    text: 'The Warden waits where the shoreline fades into mist. It does not bar the path. It asks whether you are ready to cross.',
     enemyGroupPool: ['wardenSolo'],
   },
 ]

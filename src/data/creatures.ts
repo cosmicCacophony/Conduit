@@ -8,7 +8,7 @@ export const STARTER_CREATURES: CreatureTemplate[] = [
     role: 'offense',
     maxHp: 10,
     attack: 5,
-    specials: [{ id: 'flare', name: 'Flare', type: 'strike', value: 8, cooldown: 3 }],
+    specials: [{ id: 'flare', name: 'Flare', type: 'strike', value: 12, cooldown: 3 }],
   },
   {
     id: 'moss',
@@ -47,7 +47,7 @@ export const RECRUITABLE_CREATURES: CreatureTemplate[] = [
     role: 'offense',
     maxHp: 9,
     attack: 6,
-    specials: [{ id: 'haunt', name: 'Haunt', type: 'strike', value: 10, cooldown: 4 }],
+    specials: [{ id: 'haunt', name: 'Haunt', type: 'strike', value: 14, cooldown: 4 }],
   },
   {
     id: 'ripple',
@@ -65,7 +65,7 @@ export const RECRUITABLE_CREATURES: CreatureTemplate[] = [
     role: 'offense',
     maxHp: 12,
     attack: 5,
-    specials: [{ id: 'lash', name: 'Lash', type: 'strike', value: 7, cooldown: 2 }],
+    specials: [{ id: 'lash', name: 'Lash', type: 'strike', value: 10, cooldown: 2 }],
   },
   {
     id: 'lilt',
@@ -149,7 +149,7 @@ export const ENEMY_TEMPLATES: Record<string, CreatureTemplate> = {
     role: 'boss',
     maxHp: 32,
     attack: 5,
-    specials: [{ id: 'shadow-crush', name: 'Shadow Crush', type: 'strike', value: 10, cooldown: 3 }],
+    specials: [{ id: 'shadow-crush', name: 'Shadow Crush', type: 'strike', value: 12, cooldown: 3 }],
   },
 }
 
@@ -166,7 +166,7 @@ export const ENEMY_GROUPS: Record<string, CreatureTemplate[]> = {
 export const LEARNABLE_ABILITIES: Record<Exclude<Role, 'boss'>, SpecialTemplate[]> = {
   offense: [
     { id: 'expose-weakness', name: 'Expose Weakness', type: 'weaken', value: 4, cooldown: 2 },
-    { id: 'afterglow', name: 'Afterglow', type: 'strike', value: 6, cooldown: 1 },
+    { id: 'searing-mark', name: 'Searing Mark', type: 'weaken', value: 6, cooldown: 2 },
   ],
   defense: [
     { id: 'anchor-call', name: 'Anchor Call', type: 'rally', value: 3, cooldown: 2 },

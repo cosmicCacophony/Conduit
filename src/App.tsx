@@ -91,6 +91,7 @@ function App() {
         return (
           <TeamSelectScreen
             creatures={availableCreatures}
+            fullRoster={state.roster}
             encounterIndex={state.encounterIndex}
             encounterText={state.encounterText}
             onConfirm={(ids) => dispatch({ type: 'SELECT_TEAM', ids })}

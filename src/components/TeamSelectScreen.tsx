@@ -5,6 +5,7 @@ import type { Creature } from '../types'
 
 type TeamSelectScreenProps = {
   creatures: Creature[]
+  fullRoster: Creature[]
   encounterIndex: number
   encounterText: string
   onConfirm: (ids: string[]) => void
@@ -12,19 +13,24 @@ type TeamSelectScreenProps = {
 
 export function TeamSelectScreen({
   creatures,
+  fullRoster,
   encounterIndex,
   encounterText,
   onConfirm,
 }: TeamSelectScreenProps) {
   const requiredCount = Math.min(2, creatures.length)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const fallenCreatures = useMemo(
+    () => fullRoster.filter((creature) => creature.currentHp <= 0),
+    [fullRoster],
+  )
 
   const helperText = useMemo(() => {
     if (requiredCount === 1) {
       return 'Only one creature can still answer. Bring it.'
     }
 
-    return 'Choose two creatures to carry the next fight.'
+    return 'Choose any two living creatures. Fallen creatures cannot return this run.'
   }, [requiredCount])
 
   function toggleSelection(id: string) {
@@ -48,16 +54,30 @@ export function TeamSelectScreen({
       <p className="screen-copy">{encounterText}</p>
       <p className="screen-copy muted">{helperText}</p>
 
-      <div className="card-grid">
-        {creatures.map((creature) => (
-          <CreatureCard
-            key={creature.id}
-            creature={creature}
-            selected={selectedIds.includes(creature.id)}
-            onClick={() => toggleSelection(creature.id)}
-          />
-        ))}
+      <div className="screen-section">
+        <p className="eyebrow">Available</p>
+        <div className="card-grid">
+          {creatures.map((creature) => (
+            <CreatureCard
+              key={creature.id}
+              creature={creature}
+              selected={selectedIds.includes(creature.id)}
+              onClick={() => toggleSelection(creature.id)}
+            />
+          ))}
+        </div>
       </div>
+
+      {fallenCreatures.length > 0 ? (
+        <div className="screen-section">
+          <p className="eyebrow">Fallen This Run</p>
+          <div className="card-grid">
+            {fallenCreatures.map((creature) => (
+              <CreatureCard key={creature.id} creature={creature} disabled compact />
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       <button
         className="primary-button"

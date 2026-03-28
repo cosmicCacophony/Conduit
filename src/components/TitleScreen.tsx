@@ -16,6 +16,7 @@ export function TitleScreen({ onStart, summary }: TitleScreenProps) {
         You wake on a silent shore. Creatures gather close, as though they have been
         waiting for you.
       </p>
+      <p className="screen-copy muted">A voice beneath the surf: "You are not the first to wake here."</p>
       <div className="summary-grid title-summary">
         <div className="summary-card">
           <strong>{summary.runs}</strong>

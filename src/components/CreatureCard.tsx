@@ -96,7 +96,7 @@ export function CreatureCard({
 
       {!onClick ? (
         <div className="creature-card__footer">
-          <span>{creature.currentHp > 0 ? 'Active' : 'Downed'}</span>
+          <span>{creature.currentHp > 0 ? 'Active' : 'Fallen'}</span>
         </div>
       ) : null}
       {compact && creature.specials.length === 1 && showLockedSpecials ? (

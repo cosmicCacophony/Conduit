@@ -46,6 +46,11 @@ export function RewardScreen({ rewardTier, creatures, onApply, learnOffers }: Re
       <p className="screen-copy">
         Pick a creature first. Then choose a reward that shapes how it will carry the rest of the run.
       </p>
+      <p className="screen-copy muted">
+        {rewardTier === 'elite'
+          ? 'The current tightens: "Some lessons are only given under pressure."'
+          : 'Something in the island listens back as the bond deepens.'}
+      </p>
 
       <div className="card-grid">
         {creatures.map((creature) => (
@@ -63,10 +68,14 @@ export function RewardScreen({ rewardTier, creatures, onApply, learnOffers }: Re
         <div className="reward-panel">
           <div className="choice-row">
             <button className="choice-button" type="button" onClick={() => onApply(selectedCreature.id, { type: 'hp' })}>
-              +2 Max HP and heal 2
+              Hold on
+              <br />
+              <small>+2 Max HP and heal 2</small>
             </button>
             <button className="choice-button" type="button" onClick={() => onApply(selectedCreature.id, { type: 'atk' })}>
-              +1 Attack
+              Press forward
+              <br />
+              <small>+1 Attack</small>
             </button>
             {canLearn ? (
               <button
@@ -76,7 +85,7 @@ export function RewardScreen({ rewardTier, creatures, onApply, learnOffers }: Re
                   onApply(selectedCreature.id, { type: 'learn', specialId: learnOffer!.id })
                 }
               >
-                Learn {learnOffer?.name}
+                Listen more closely: {learnOffer?.name}
                 <br />
                 <small>{learnOffer ? getSpecialDescription(learnOffer) : ''}</small>
                 <br />
@@ -99,7 +108,9 @@ export function RewardScreen({ rewardTier, creatures, onApply, learnOffers }: Re
                       type="button"
                       onClick={() => onApply(selectedCreature.id, { type: 'upgradeValue', specialId: special.id })}
                     >
-                      +2 value
+                      Strengthen
+                      <br />
+                      <small>+2 value</small>
                     </button>
                     <button
                       className="choice-button"
@@ -108,7 +119,9 @@ export function RewardScreen({ rewardTier, creatures, onApply, learnOffers }: Re
                         onApply(selectedCreature.id, { type: 'upgradeCooldown', specialId: special.id })
                       }
                     >
-                      -1 cooldown
+                      Refine
+                      <br />
+                      <small>-1 cooldown</small>
                     </button>
                   </div>
                 </div>
