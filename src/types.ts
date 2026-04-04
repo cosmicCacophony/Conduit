@@ -1,6 +1,10 @@
 export type Role = 'offense' | 'defense' | 'support' | 'boss'
 
-export type SpecialType = 'strike' | 'guard' | 'mend' | 'weaken' | 'rally'
+export type Element = 'fire' | 'water' | 'nature' | 'shadow'
+
+export type SpecialType = 'strike' | 'guard' | 'mend' | 'weaken' | 'rally' | 'poison' | 'taunt'
+
+export type BehaviorArchetype = 'berserker' | 'guardian' | 'hexer' | 'support' | 'summoner' | 'warden'
 
 export type GamePhase =
   | 'title'
@@ -26,6 +30,10 @@ export interface SpecialTemplate {
   type: SpecialType
   value: number
   cooldown: number
+  element?: Element
+  targetType?: 'enemy' | 'ally' | 'self'
+  targetScope?: 'single' | 'all'
+  chargeTurns?: number
 }
 
 export interface SpecialState extends SpecialTemplate {
@@ -33,9 +41,15 @@ export interface SpecialState extends SpecialTemplate {
 }
 
 export interface CombatIntent {
-  action: 'attack' | 'special'
+  action: 'attack' | 'special' | 'charge'
   targetId: string
   specialId?: string
+}
+
+export interface ChargeState {
+  specialId: string
+  targetId: string
+  turnsRemaining: number
 }
 
 export interface CreatureTemplate {
@@ -43,9 +57,12 @@ export interface CreatureTemplate {
   name: string
   emoji: string
   role: Role
+  element: Element
+  elementalAttack: number
   maxHp: number
   attack: number
   specials: SpecialTemplate[]
+  behavior?: BehaviorArchetype
 }
 
 export interface Creature extends Omit<CreatureTemplate, 'specials'> {
@@ -53,8 +70,12 @@ export interface Creature extends Omit<CreatureTemplate, 'specials'> {
   shield: number
   weakened: number
   rallied: number
+  poison: number
+  poisonTurns: number
+  tauntTurns: number
   specials: SpecialState[]
   intent?: CombatIntent
+  charging?: ChargeState
 }
 
 export interface EncounterDefinition {
@@ -112,7 +133,7 @@ export interface GameState {
   recruitOffer: Creature[]
   combatTurn: CombatTurn
   rewardTier: RewardTier
-  learnOffers: Record<string, SpecialTemplate | null>
+  learnOffers: SpecialTemplate[]
   stats: RunStats
   lastEffect: CombatEffect | null
 }

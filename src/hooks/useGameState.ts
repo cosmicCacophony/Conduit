@@ -13,15 +13,17 @@ import type {
   CombatIntent,
   Creature,
   CreatureTemplate,
+  Element,
   GameAction,
   GameState,
   RewardType,
-  Role,
   SpecialState,
   SpecialTemplate,
 } from '../types'
 
 const MAX_LOG_LINES = 10
+const POISON_DURATION = 3
+const CHARGE_EXPOSURE_BONUS = 2
 
 const initialStats: GameState['stats'] = {
   fightsWon: 0,
@@ -43,9 +45,33 @@ const initialState: GameState = {
   recruitOffer: [],
   combatTurn: 'player',
   rewardTier: 'normal',
-  learnOffers: {},
+  learnOffers: [],
   stats: initialStats,
   lastEffect: null,
+}
+
+const ELEMENT_ADVANTAGE: Record<Exclude<Element, 'shadow'>, Exclude<Element, 'shadow'>> = {
+  fire: 'nature',
+  nature: 'water',
+  water: 'fire',
+}
+
+type DamagePayload = {
+  physical?: number
+  elemental?: number
+  element?: Element
+}
+
+type DamageResult = {
+  creature: Creature
+  damage: number
+  blocked: number
+  bonus: number
+  chargeBonus: number
+  physicalDamage: number
+  elementalDamage: number
+  element?: Element
+  elementOutcome: 'neutral' | 'advantage' | 'resist'
 }
 
 function shuffle<T>(items: T[]): T[] {
@@ -109,12 +135,23 @@ function decrementCooldowns(creatures: Creature[]): Creature[] {
   }))
 }
 
+function decrementTimedStates(creatures: Creature[]): Creature[] {
+  return creatures.map((creature) => ({
+    ...creature,
+    tauntTurns: Math.max(0, creature.tauntTurns - 1),
+  }))
+}
+
 function prepareRosterForBattle(roster: Creature[]): Creature[] {
   return roster.map((creature) => ({
     ...creature,
     shield: 0,
     weakened: 0,
     rallied: 0,
+    poison: 0,
+    poisonTurns: 0,
+    tauntTurns: 0,
+    charging: undefined,
     specials: creature.specials.map((special) => ({
       ...special,
       currentCooldown: 0,
@@ -142,21 +179,19 @@ function createAvailableCreatureIds(roster: Creature[]): string[] {
   return getLivingCreatures(roster).map((creature) => creature.id)
 }
 
-function createLearnOffers(roster: Creature[]): Record<string, SpecialTemplate | null> {
-  const offers: Record<string, SpecialTemplate | null> = {}
-
-  for (const creature of roster) {
-    if (creature.role === 'boss' || creature.specials.length >= 2) {
-      offers[creature.id] = null
-      continue
-    }
-
-    const knownIds = new Set(creature.specials.map((special) => special.id))
-    const pool = shuffle(LEARNABLE_ABILITIES[creature.role as Exclude<Role, 'boss'>])
-    offers[creature.id] = pool.find((special) => !knownIds.has(special.id)) ?? null
+function createLearnOffers(roster: Creature[]): SpecialTemplate[] {
+  const eligibleCreatures = roster.filter(
+    (creature) => creature.role !== 'boss' && creature.currentHp > 0 && creature.specials.length < 2,
+  )
+  if (eligibleCreatures.length === 0) {
+    return []
   }
 
-  return offers
+  return shuffle(LEARNABLE_ABILITIES)
+    .filter((special) =>
+      eligibleCreatures.some((creature) => creature.specials.every((known) => known.id !== special.id)),
+    )
+    .slice(0, 3)
 }
 
 function createEffect(nextTick: number, effect: Omit<CombatEffect, 'tick'>): CombatEffect {
@@ -176,9 +211,40 @@ function consumeWeaken(target: Creature) {
   }
 }
 
-function applyDamage(target: Creature, amount: number) {
+function getElementOutcome(attackingElement: Element | undefined, targetElement: Element): DamageResult['elementOutcome'] {
+  if (!attackingElement || attackingElement === 'shadow' || targetElement === 'shadow') {
+    return 'neutral'
+  }
+
+  if (ELEMENT_ADVANTAGE[attackingElement] === targetElement) {
+    return 'advantage'
+  }
+
+  if (ELEMENT_ADVANTAGE[targetElement as Exclude<Element, 'shadow'>] === attackingElement) {
+    return 'resist'
+  }
+
+  return 'neutral'
+}
+
+function scaleElementalDamage(amount: number, outcome: DamageResult['elementOutcome']) {
+  if (outcome === 'advantage') {
+    return amount * 2
+  }
+  if (outcome === 'resist') {
+    return Math.floor(amount / 2)
+  }
+  return amount
+}
+
+function applyDamage(target: Creature, payload: DamagePayload): DamageResult {
   const weakenedResult = consumeWeaken(target)
-  const totalDamage = amount + weakenedResult.bonus
+  const physicalDamage = payload.physical ?? 0
+  const rawElementalDamage = payload.elemental ?? 0
+  const elementOutcome = getElementOutcome(payload.element, target.element)
+  const elementalDamage = scaleElementalDamage(rawElementalDamage, elementOutcome)
+  const chargeBonus = weakenedResult.nextTarget.charging ? CHARGE_EXPOSURE_BONUS : 0
+  const totalDamage = physicalDamage + elementalDamage + weakenedResult.bonus + chargeBonus
 
   if (weakenedResult.nextTarget.shield > 0) {
     const blocked = Math.min(weakenedResult.nextTarget.shield, totalDamage)
@@ -193,6 +259,11 @@ function applyDamage(target: Creature, amount: number) {
       damage: remainingDamage,
       blocked,
       bonus: weakenedResult.bonus,
+      chargeBonus,
+      physicalDamage,
+      elementalDamage,
+      element: payload.element,
+      elementOutcome,
     }
   }
 
@@ -204,7 +275,37 @@ function applyDamage(target: Creature, amount: number) {
     damage: totalDamage,
     blocked: 0,
     bonus: weakenedResult.bonus,
+    chargeBonus,
+    physicalDamage,
+    elementalDamage,
+    element: payload.element,
+    elementOutcome,
   }
+}
+
+function buildDamageBreakdown(result: DamageResult) {
+  const parts: string[] = []
+
+  if (result.physicalDamage > 0) {
+    parts.push(`${result.physicalDamage} physical`)
+  }
+  if (result.elementalDamage > 0 && result.element) {
+    let elemental = `${result.elementalDamage} ${getElementLabel(result.element).toLowerCase()}`
+    if (result.elementOutcome === 'advantage') {
+      elemental += ' (super effective)'
+    } else if (result.elementOutcome === 'resist') {
+      elemental += ' (resisted)'
+    }
+    parts.push(elemental)
+  }
+  if (result.bonus > 0) {
+    parts.push(`${result.bonus} weakness`)
+  }
+  if (result.chargeBonus > 0) {
+    parts.push(`${result.chargeBonus} exposed`)
+  }
+
+  return parts.join(' + ')
 }
 
 function chooseLowestHpTarget(creatures: Creature[]): Creature | null {
@@ -215,10 +316,19 @@ function chooseLowestHpTarget(creatures: Creature[]): Creature | null {
   )
 }
 
+function getTauntingTargets(creatures: Creature[]) {
+  return creatures.filter((creature) => creature.currentHp > 0 && creature.tauntTurns > 0)
+}
+
 function chooseEnemyAttackTarget(team: Creature[]): Creature | null {
   const livingTeam = team.filter((creature) => creature.currentHp > 0)
   if (livingTeam.length === 0) {
     return null
+  }
+
+  const tauntingTargets = getTauntingTargets(livingTeam)
+  if (tauntingTargets.length > 0) {
+    return chooseLowestHpTarget(tauntingTargets) ?? tauntingTargets[0] ?? null
   }
 
   const lowestHpTarget = chooseLowestHpTarget(livingTeam)
@@ -234,32 +344,133 @@ function chooseEnemyAttackTarget(team: Creature[]): Creature | null {
   return sample(otherTargets.length > 0 ? otherTargets : livingTeam)
 }
 
+function chooseSpecial(enemy: Creature, predicate: (special: SpecialState) => boolean) {
+  return enemy.specials.find((special) => special.currentCooldown === 0 && predicate(special))
+}
+
+function createSpecialIntent(special: SpecialState, targetId: string): CombatIntent {
+  if (special.chargeTurns && special.chargeTurns > 0) {
+    return { action: 'charge', specialId: special.id, targetId }
+  }
+
+  return { action: 'special', specialId: special.id, targetId }
+}
+
 function chooseEnemyIntent(enemy: Creature, enemies: Creature[], team: Creature[]): CombatIntent {
-  const target = chooseEnemyAttackTarget(team) ?? team[0]
-  const readySpecial = enemy.specials.find((special) => special.currentCooldown === 0)
-
-  if (!readySpecial || !target) {
-    return { action: 'attack', targetId: target?.id ?? '' }
+  if (enemy.charging) {
+    return { action: 'charge', targetId: enemy.charging.targetId, specialId: enemy.charging.specialId }
   }
 
-  if (readySpecial.type === 'guard') {
-    const ally = chooseLowestHpTarget(
-      enemies.filter((creature) => creature.currentHp > 0 && creature.shield === 0),
-    )
-    if (ally && ally.currentHp <= Math.ceil(ally.maxHp / 2)) {
-      return { action: 'special', specialId: readySpecial.id, targetId: ally.id }
+  const livingEnemies = getLivingCreatures(enemies)
+  const livingTeam = getLivingCreatures(team)
+  const target = chooseEnemyAttackTarget(livingTeam) ?? livingTeam[0]
+
+  if (!target) {
+    return { action: 'attack', targetId: '' }
+  }
+
+  const lowAlly = chooseLowestHpTarget(livingEnemies)
+  const allyWithoutShield = chooseLowestHpTarget(livingEnemies.filter((creature) => creature.shield === 0))
+  const unpoisonedTarget = chooseLowestHpTarget(livingTeam.filter((creature) => creature.poisonTurns === 0)) ?? target
+  const unweakenedTarget = chooseLowestHpTarget(livingTeam.filter((creature) => creature.weakened === 0)) ?? target
+
+  switch (enemy.behavior) {
+    case 'berserker': {
+      const rally = chooseSpecial(enemy, (special) => special.type === 'rally')
+      if (rally && enemy.currentHp <= Math.ceil(enemy.maxHp / 2) && enemy.rallied === 0) {
+        return { action: 'special', specialId: rally.id, targetId: enemy.id }
+      }
+
+      const chargedStrike = chooseSpecial(enemy, (special) => special.type === 'strike' && Boolean(special.chargeTurns))
+      if (chargedStrike) {
+        return createSpecialIntent(chargedStrike, target.id)
+      }
+
+      const strike = chooseSpecial(enemy, (special) => special.type === 'strike')
+      if (strike && (target.currentHp <= strike.value || Math.random() < 0.3)) {
+        return createSpecialIntent(strike, target.id)
+      }
+      break
     }
-  }
 
-  if (readySpecial.type === 'mend') {
-    const ally = chooseLowestHpTarget(enemies)
-    if (ally && ally.currentHp <= Math.ceil(ally.maxHp / 2)) {
-      return { action: 'special', specialId: readySpecial.id, targetId: ally.id }
+    case 'guardian': {
+      const taunt = chooseSpecial(enemy, (special) => special.type === 'taunt')
+      if (taunt && enemy.tauntTurns === 0) {
+        return { action: 'special', specialId: taunt.id, targetId: enemy.id }
+      }
+
+      const guard = chooseSpecial(enemy, (special) => special.type === 'guard')
+      if (guard && allyWithoutShield && allyWithoutShield.currentHp <= Math.ceil(allyWithoutShield.maxHp * 0.7)) {
+        return { action: 'special', specialId: guard.id, targetId: allyWithoutShield.id }
+      }
+      break
     }
-  }
 
-  if (readySpecial.type === 'strike' && (target.currentHp <= readySpecial.value || Math.random() < 0.2)) {
-    return { action: 'special', specialId: readySpecial.id, targetId: target.id }
+    case 'hexer': {
+      const poison = chooseSpecial(enemy, (special) => special.type === 'poison')
+      if (poison && unpoisonedTarget) {
+        return { action: 'special', specialId: poison.id, targetId: unpoisonedTarget.id }
+      }
+
+      const weaken = chooseSpecial(enemy, (special) => special.type === 'weaken')
+      if (weaken && unweakenedTarget) {
+        return { action: 'special', specialId: weaken.id, targetId: unweakenedTarget.id }
+      }
+
+      const strike = chooseSpecial(enemy, (special) => special.type === 'strike')
+      if (strike && Math.random() < 0.35) {
+        return createSpecialIntent(strike, target.id)
+      }
+      break
+    }
+
+    case 'support': {
+      const mend = chooseSpecial(enemy, (special) => special.type === 'mend')
+      if (mend && lowAlly && lowAlly.currentHp <= Math.ceil(lowAlly.maxHp * 0.7)) {
+        return { action: 'special', specialId: mend.id, targetId: lowAlly.id }
+      }
+
+      const weaken = chooseSpecial(enemy, (special) => special.type === 'weaken')
+      if (weaken && unweakenedTarget) {
+        return { action: 'special', specialId: weaken.id, targetId: unweakenedTarget.id }
+      }
+      break
+    }
+
+    case 'warden': {
+      const eclipse = chooseSpecial(enemy, (special) => special.id === 'eclipse')
+      if (eclipse) {
+        return createSpecialIntent(eclipse, target.id)
+      }
+
+      const poison = chooseSpecial(enemy, (special) => special.type === 'poison')
+      if (poison && unpoisonedTarget) {
+        return { action: 'special', specialId: poison.id, targetId: unpoisonedTarget.id }
+      }
+
+      const strike = chooseSpecial(enemy, (special) => special.type === 'strike')
+      if (strike) {
+        return createSpecialIntent(strike, target.id)
+      }
+      break
+    }
+
+    default: {
+      const guard = chooseSpecial(enemy, (special) => special.type === 'guard')
+      if (guard && allyWithoutShield && allyWithoutShield.currentHp <= Math.ceil(allyWithoutShield.maxHp / 2)) {
+        return { action: 'special', specialId: guard.id, targetId: allyWithoutShield.id }
+      }
+
+      const mend = chooseSpecial(enemy, (special) => special.type === 'mend')
+      if (mend && lowAlly && lowAlly.currentHp <= Math.ceil(lowAlly.maxHp / 2)) {
+        return { action: 'special', specialId: mend.id, targetId: lowAlly.id }
+      }
+
+      const strike = chooseSpecial(enemy, (special) => special.type === 'strike')
+      if (strike && (target.currentHp <= strike.value || Math.random() < 0.2)) {
+        return createSpecialIntent(strike, target.id)
+      }
+    }
   }
 
   return { action: 'attack', targetId: target.id }
@@ -373,8 +584,8 @@ function applyRewardToRoster(
 
   if (reward.type === 'learn') {
     return updateCreatureList(roster, creatureId, (creature) => {
-      const offer = learnOffers[creatureId]
-      if (!offer || offer.id !== reward.specialId || creature.specials.length >= 2) {
+      const offer = learnOffers.find((special) => special.id === reward.specialId)
+      if (!offer || creature.specials.length >= 2 || creature.specials.some((special) => special.id === offer.id)) {
         return creature
       }
 
@@ -404,86 +615,65 @@ function applyRewardToRoster(
   }))
 }
 
-function resolvePlayerAttack(state: GameState, actor: Creature, targetId: string): GameState {
-  const target = state.enemies.find((enemy) => enemy.id === targetId && enemy.currentHp > 0)
-  if (!target) {
-    return state
+function advanceAfterWin(
+  state: GameState,
+  roster: Creature[],
+  enemies: Creature[],
+  combatLog: string[],
+  lastEffect: CombatEffect | null,
+): GameState {
+  const encounter = getEncounter(state.encounterIndex)
+  const nextStats = {
+    ...state.stats,
+    fightsWon: state.stats.fightsWon + 1,
+    encountersCleared: encounter?.type === 'boss' ? ENCOUNTERS.length : state.stats.encountersCleared,
   }
 
-  const rallyBonus = actor.rallied
-  const resolvedTarget = applyDamage(target, actor.attack + rallyBonus)
-  const roster = updateCreatureList(state.roster, actor.id, (creature) => ({
-    ...creature,
-    rallied: 0,
-  }))
-  const enemies = updateCreatureList(state.enemies, target.id, () => resolvedTarget.creature)
-
-  let combatLog = pushLog(
-    state.combatLog,
-    `${actor.name} attacks ${target.name} for ${resolvedTarget.damage} damage.`,
-  )
-
-  if (resolvedTarget.blocked > 0) {
-    combatLog = pushLog(combatLog, `${target.name} blocks ${resolvedTarget.blocked} damage.`)
-  }
-
-  if (resolvedTarget.bonus > 0) {
-    combatLog = pushLog(combatLog, `${target.name}'s weakness adds ${resolvedTarget.bonus} bonus damage.`)
-  }
-
-  if (resolvedTarget.creature.currentHp <= 0) {
-    combatLog = pushLog(combatLog, `${target.name} falls quiet.`)
-  }
-
-  const livingEnemies = getLivingCreatures(enemies)
-
-  if (livingEnemies.length === 0) {
-    const encounter = getEncounter(state.encounterIndex)
-    const nextStats = {
-      ...state.stats,
-      fightsWon: state.stats.fightsWon + 1,
-      encountersCleared:
-        encounter?.type === 'boss' ? ENCOUNTERS.length : state.stats.encountersCleared,
-    }
-
-    if (encounter?.type === 'boss') {
-      return {
-        ...state,
-        phase: 'victory',
-        roster,
-        actedCreatureIds: [],
-        enemies,
-        combatLog: pushLog(combatLog, 'The Warden gives way to the tide.'),
-        stats: nextStats,
-        lastEffect: createEffect(state.stats.boostsGiven + nextStats.fightsWon + state.encounterIndex + 1, {
+  if (encounter?.type === 'boss') {
+    return {
+      ...state,
+      phase: 'victory',
+      roster,
+      actedCreatureIds: [],
+      enemies,
+      combatLog: pushLog(combatLog, 'The island exhales. The Warden yields.'),
+      stats: nextStats,
+      lastEffect:
+        lastEffect ??
+        createEffect(state.stats.boostsGiven + nextStats.fightsWon + state.encounterIndex + 1, {
           kind: 'victory',
           targetIds: [],
           label: 'Victory',
           sound: 'victory',
           shake: true,
         }),
-      }
     }
+  }
 
-    return {
-      ...state,
-      phase: 'reward',
-      roster,
-        actedCreatureIds: [],
-      enemies,
-      combatLog: pushLog(combatLog, 'The path opens a little further.'),
-      rewardTier: encounter?.rewardTier ?? 'normal',
-      learnOffers: createLearnOffers(roster),
-      stats: nextStats,
-      lastEffect: createEffect(state.stats.boostsGiven + nextStats.fightsWon + state.encounterIndex + 1, {
-        kind: 'damage',
-        targetIds: [target.id],
-        label: `-${resolvedTarget.damage}`,
-        value: resolvedTarget.damage,
-        sound: 'hit',
-        shake: resolvedTarget.damage > 7,
-      }),
-    }
+  return {
+    ...state,
+    phase: 'reward',
+    roster,
+    actedCreatureIds: [],
+    enemies,
+    combatLog: pushLog(combatLog, 'The path opens a little further.'),
+    rewardTier: encounter?.rewardTier ?? 'normal',
+    learnOffers: createLearnOffers(roster),
+    stats: nextStats,
+    lastEffect,
+  }
+}
+
+function finishPlayerAction(
+  state: GameState,
+  roster: Creature[],
+  enemies: Creature[],
+  combatLog: string[],
+  actor: Creature,
+  lastEffect: CombatEffect | null,
+): GameState {
+  if (getLivingCreatures(enemies).length === 0) {
+    return advanceAfterWin(state, roster, enemies, combatLog, lastEffect)
   }
 
   const actedCreatureIds = [...state.actedCreatureIds, actor.id]
@@ -501,7 +691,51 @@ function resolvePlayerAttack(state: GameState, actor: Creature, targetId: string
     actedCreatureIds,
     combatLog,
     combatTurn: remainingActors.length > 0 ? 'player' : 'enemy',
-    lastEffect: createEffect(state.stats.boostsGiven + state.stats.fightsWon + state.encounterIndex + 1, {
+    lastEffect,
+  }
+}
+
+function resolvePlayerAttack(state: GameState, actor: Creature, targetId: string): GameState {
+  const tauntingEnemies = getTauntingTargets(getLivingCreatures(state.enemies))
+  const actualTargetId = tauntingEnemies.length > 0 ? tauntingEnemies[0]!.id : targetId
+  const target = state.enemies.find((enemy) => enemy.id === actualTargetId && enemy.currentHp > 0)
+  if (!target) {
+    return state
+  }
+
+  const rallyBonus = actor.rallied
+  const resolvedTarget = applyDamage(target, {
+    physical: actor.attack + rallyBonus,
+    elemental: actor.elementalAttack,
+    element: actor.element,
+  })
+  const roster = updateCreatureList(state.roster, actor.id, (creature) => ({
+    ...creature,
+    rallied: 0,
+  }))
+  const enemies = updateCreatureList(state.enemies, target.id, () => resolvedTarget.creature)
+  const breakdown = buildDamageBreakdown(resolvedTarget)
+
+  let combatLog = pushLog(
+    state.combatLog,
+    `${actor.name} attacks ${target.name} for ${resolvedTarget.damage} damage${breakdown ? ` (${breakdown})` : ''}.`,
+  )
+
+  if (resolvedTarget.blocked > 0) {
+    combatLog = pushLog(combatLog, `${target.name} blocks ${resolvedTarget.blocked} damage.`)
+  }
+
+  if (resolvedTarget.creature.currentHp <= 0) {
+    combatLog = pushLog(combatLog, `${target.name} falls quiet.`)
+  }
+
+  return finishPlayerAction(
+    state,
+    roster,
+    enemies,
+    combatLog,
+    actor,
+    createEffect(state.stats.boostsGiven + state.stats.fightsWon + state.encounterIndex + 1, {
       kind: 'damage',
       targetIds: [target.id],
       label: `-${resolvedTarget.damage}`,
@@ -509,7 +743,7 @@ function resolvePlayerAttack(state: GameState, actor: Creature, targetId: string
       sound: 'hit',
       shake: resolvedTarget.damage > 7,
     }),
-  }
+  )
 }
 
 function resolvePlayerSpecial(
@@ -532,31 +766,46 @@ function resolvePlayerSpecial(
   let lastEffect: CombatEffect | null = null
 
   if (special.type === 'strike') {
-    const target = state.enemies.find((enemy) => enemy.id === targetId && enemy.currentHp > 0)
-    if (!target) {
+    const targets =
+      special.targetScope === 'all'
+        ? getLivingCreatures(state.enemies)
+        : state.enemies.filter((enemy) => enemy.id === targetId && enemy.currentHp > 0)
+    if (targets.length === 0) {
       return state
     }
 
-    const resolvedTarget = applyDamage(target, special.value)
-    enemies = updateCreatureList(enemies, target.id, () => resolvedTarget.creature)
-    combatLog = pushLog(combatLog, `${actor.name} uses ${special.name} on ${target.name}.`)
-    if (resolvedTarget.bonus > 0) {
-      combatLog = pushLog(combatLog, `${target.name}'s weakness adds ${resolvedTarget.bonus} bonus damage.`)
+    const updatedTargets: string[] = []
+    let totalDamage = 0
+    for (const target of targets) {
+      const resolvedTarget = applyDamage(target, {
+        elemental: special.value,
+        element: special.element ?? actor.element,
+      })
+      enemies = updateCreatureList(enemies, target.id, () => resolvedTarget.creature)
+      updatedTargets.push(target.id)
+      totalDamage += resolvedTarget.damage
+      const breakdown = buildDamageBreakdown(resolvedTarget)
+      combatLog = pushLog(
+        combatLog,
+        `${actor.name} uses ${special.name} on ${target.name} for ${resolvedTarget.damage}${breakdown ? ` (${breakdown})` : ''}.`,
+      )
+      if (resolvedTarget.blocked > 0) {
+        combatLog = pushLog(combatLog, `${target.name} blocks ${resolvedTarget.blocked} damage.`)
+      }
+      if (resolvedTarget.creature.currentHp <= 0) {
+        combatLog = pushLog(combatLog, `${target.name} is driven back into the mist.`)
+      }
     }
-    if (resolvedTarget.creature.currentHp <= 0) {
-      combatLog = pushLog(combatLog, `${target.name} is driven back into the mist.`)
-    }
+
     lastEffect = createEffect(state.stats.boostsGiven + state.stats.fightsWon + state.encounterIndex + 2, {
       kind: 'damage',
-      targetIds: [target.id],
-      label: `-${resolvedTarget.damage}`,
-      value: resolvedTarget.damage,
+      targetIds: updatedTargets,
+      label: `-${totalDamage}`,
+      value: totalDamage,
       sound: 'special',
-      shake: resolvedTarget.damage > 7,
+      shake: totalDamage > 7,
     })
-  }
-
-  if (special.type === 'weaken') {
+  } else if (special.type === 'weaken') {
     const target = state.enemies.find((enemy) => enemy.id === targetId && enemy.currentHp > 0)
     if (!target) {
       return state
@@ -564,7 +813,7 @@ function resolvePlayerSpecial(
 
     enemies = updateCreatureList(enemies, target.id, (creature) => ({
       ...creature,
-      weakened: special.value,
+      weakened: Math.max(creature.weakened, special.value),
     }))
     combatLog = pushLog(combatLog, `${actor.name} exposes ${target.name}. The next hit deals +${special.value}.`)
     lastEffect = createEffect(state.stats.boostsGiven + state.stats.fightsWon + state.encounterIndex + 2, {
@@ -574,9 +823,7 @@ function resolvePlayerSpecial(
       value: special.value,
       sound: 'special',
     })
-  }
-
-  if (special.type === 'guard') {
+  } else if (special.type === 'guard') {
     const target = roster.find((creature) => creature.id === targetId && state.selectedTeamIds.includes(creature.id))
     if (!target || target.currentHp <= 0) {
       return state
@@ -584,7 +831,7 @@ function resolvePlayerSpecial(
 
     roster = updateCreatureList(roster, target.id, (creature) => ({
       ...creature,
-      shield: special.value,
+      shield: Math.max(creature.shield, special.value),
     }))
     combatLog = pushLog(combatLog, `${actor.name} shields ${target.name} for the next hit.`)
     lastEffect = createEffect(state.stats.boostsGiven + state.stats.fightsWon + state.encounterIndex + 2, {
@@ -594,9 +841,7 @@ function resolvePlayerSpecial(
       value: special.value,
       sound: 'guard',
     })
-  }
-
-  if (special.type === 'mend') {
+  } else if (special.type === 'mend') {
     const target = roster.find((creature) => creature.id === targetId && state.selectedTeamIds.includes(creature.id))
     if (!target || target.currentHp <= 0) {
       return state
@@ -614,9 +859,7 @@ function resolvePlayerSpecial(
       value: special.value,
       sound: 'heal',
     })
-  }
-
-  if (special.type === 'rally') {
+  } else if (special.type === 'rally') {
     const target = roster.find((creature) => creature.id === targetId && state.selectedTeamIds.includes(creature.id))
     if (!target || target.currentHp <= 0) {
       return state
@@ -624,7 +867,7 @@ function resolvePlayerSpecial(
 
     roster = updateCreatureList(roster, target.id, (creature) => ({
       ...creature,
-      rallied: special.value,
+      rallied: Math.max(creature.rallied, special.value),
     }))
     combatLog = pushLog(combatLog, `${actor.name} rallies ${target.name}. Their next attack gains +${special.value}.`)
     lastEffect = createEffect(state.stats.boostsGiven + state.stats.fightsWon + state.encounterIndex + 2, {
@@ -634,70 +877,97 @@ function resolvePlayerSpecial(
       value: special.value,
       sound: 'special',
     })
+  } else if (special.type === 'poison') {
+    const target = state.enemies.find((enemy) => enemy.id === targetId && enemy.currentHp > 0)
+    if (!target) {
+      return state
+    }
+
+    enemies = updateCreatureList(enemies, target.id, (creature) => ({
+      ...creature,
+      poison: Math.max(creature.poison, special.value),
+      poisonTurns: Math.max(creature.poisonTurns, POISON_DURATION),
+    }))
+    combatLog = pushLog(combatLog, `${actor.name} poisons ${target.name}. The rot will bite for ${special.value}.`)
+    lastEffect = createEffect(state.stats.boostsGiven + state.stats.fightsWon + state.encounterIndex + 2, {
+      kind: 'buff',
+      targetIds: [target.id],
+      label: `Poison ${special.value}`,
+      value: special.value,
+      sound: 'special',
+    })
+  } else if (special.type === 'taunt') {
+    const target = roster.find((creature) => creature.id === targetId && state.selectedTeamIds.includes(creature.id))
+    if (!target || target.currentHp <= 0) {
+      return state
+    }
+
+    roster = updateCreatureList(roster, target.id, (creature) => ({
+      ...creature,
+      tauntTurns: Math.max(creature.tauntTurns, special.value),
+    }))
+    combatLog = pushLog(combatLog, `${actor.name} draws the enemy's eye to ${target.name}.`)
+    lastEffect = createEffect(state.stats.boostsGiven + state.stats.fightsWon + state.encounterIndex + 2, {
+      kind: 'buff',
+      targetIds: [target.id],
+      label: `Taunt ${special.value}`,
+      value: special.value,
+      sound: 'special',
+    })
   }
 
-  const livingEnemies = getLivingCreatures(enemies)
+  return finishPlayerAction(state, roster, enemies, combatLog, actor, lastEffect)
+}
 
-  if (livingEnemies.length === 0) {
-    const encounter = getEncounter(state.encounterIndex)
-    const nextStats = {
-      ...state.stats,
-      fightsWon: state.stats.fightsWon + 1,
-      encountersCleared:
-        encounter?.type === 'boss' ? ENCOUNTERS.length : state.stats.encountersCleared,
+function applyPoisonTick(
+  creatures: Creature[],
+  creatureIds: string[],
+  combatLog: string[],
+  tickBase: number,
+) {
+  let nextCreatures = creatures
+  let nextLog = combatLog
+  const affectedIds: string[] = []
+  let totalDamage = 0
+
+  for (const creatureId of creatureIds) {
+    const current = nextCreatures.find((creature) => creature.id === creatureId && creature.currentHp > 0)
+    if (!current || current.poisonTurns <= 0 || current.poison <= 0) {
+      continue
     }
 
-    if (encounter?.type === 'boss') {
-      return {
-        ...state,
-        phase: 'victory',
-        roster,
-        actedCreatureIds: [],
-        enemies,
-        combatLog: pushLog(combatLog, 'The island exhales. The Warden yields.'),
-        stats: nextStats,
-        lastEffect:
-          lastEffect ??
-          createEffect(state.stats.boostsGiven + nextStats.fightsWon + state.encounterIndex + 2, {
-            kind: 'victory',
-            targetIds: [],
-            label: 'Victory',
-            sound: 'victory',
-            shake: true,
-          }),
-      }
+    const damage = Math.min(current.currentHp, current.poison)
+    const remainingTurns = Math.max(0, current.poisonTurns - 1)
+    const nextCreature = {
+      ...current,
+      currentHp: Math.max(0, current.currentHp - damage),
+      poisonTurns: remainingTurns,
+      poison: remainingTurns === 0 ? 0 : current.poison,
     }
 
-    return {
-      ...state,
-      phase: 'reward',
-      roster,
-      actedCreatureIds: [],
-      enemies,
-      combatLog: pushLog(combatLog, 'The current lets you breathe again.'),
-      rewardTier: encounter?.rewardTier ?? 'normal',
-      learnOffers: createLearnOffers(roster),
-      stats: nextStats,
-      lastEffect: lastEffect,
+    nextCreatures = updateCreatureList(nextCreatures, current.id, () => nextCreature)
+    nextLog = pushLog(nextLog, `${current.name} suffers ${damage} poison damage.`)
+    if (nextCreature.currentHp <= 0) {
+      nextLog = pushLog(nextLog, `${current.name} collapses under the rot.`)
     }
+    affectedIds.push(current.id)
+    totalDamage += damage
   }
-
-  const actedCreatureIds = [...state.actedCreatureIds, actor.id]
-  const remainingActors = getLivingCreatures(
-    roster.filter(
-      (creature) =>
-        state.selectedTeamIds.includes(creature.id) && !actedCreatureIds.includes(creature.id),
-    ),
-  )
 
   return {
-    ...state,
-    roster,
-    enemies,
-    actedCreatureIds,
-    combatLog,
-    combatTurn: remainingActors.length > 0 ? 'player' : 'enemy',
-    lastEffect,
+    creatures: nextCreatures,
+    combatLog: nextLog,
+    lastEffect:
+      affectedIds.length > 0
+        ? createEffect(tickBase, {
+            kind: 'damage',
+            targetIds: affectedIds,
+            label: `-${totalDamage}`,
+            value: totalDamage,
+            sound: 'special',
+            shake: totalDamage > 6,
+          })
+        : null,
   }
 }
 
@@ -707,6 +977,16 @@ function executeEnemyTurn(state: GameState): GameState {
   let combatLog = state.combatLog
   let lastEffect = state.lastEffect
 
+  const poisonOnTeam = applyPoisonTick(
+    roster,
+    state.selectedTeamIds,
+    combatLog,
+    state.stats.encountersCleared + state.stats.fightsWon + 18,
+  )
+  roster = poisonOnTeam.creatures
+  combatLog = poisonOnTeam.combatLog
+  lastEffect = poisonOnTeam.lastEffect ?? lastEffect
+
   const livingTeamAtStart = getLivingCreatures(
     roster.filter((creature) => state.selectedTeamIds.includes(creature.id)),
   )
@@ -714,12 +994,16 @@ function executeEnemyTurn(state: GameState): GameState {
     return {
       ...state,
       phase: 'defeat',
-      lastEffect: createEffect(state.stats.encountersCleared + state.stats.fightsWon + 10, {
-        kind: 'defeat',
-        targetIds: [],
-        label: 'Lost',
-        sound: 'defeat',
-      }),
+      lastEffect:
+        lastEffect ??
+        createEffect(state.stats.encountersCleared + state.stats.fightsWon + 10, {
+          kind: 'defeat',
+          targetIds: [],
+          label: 'Lost',
+          sound: 'defeat',
+        }),
+      combatLog: pushLog(combatLog, 'The run ends in the island hush.'),
+      roster,
     }
   }
 
@@ -736,6 +1020,83 @@ function executeEnemyTurn(state: GameState): GameState {
       break
     }
 
+    if (enemy.charging) {
+      const specialIndex = enemy.specials.findIndex((special) => special.id === enemy.charging?.specialId)
+      const special = enemy.specials[specialIndex]
+      if (!special) {
+        enemies = updateCreatureList(enemies, enemy.id, (creature) => ({ ...creature, charging: undefined }))
+        continue
+      }
+
+      if (enemy.charging.turnsRemaining > 1) {
+        enemies = updateCreatureList(enemies, enemy.id, (creature) => ({
+          ...creature,
+          charging: creature.charging
+            ? { ...creature.charging, turnsRemaining: creature.charging.turnsRemaining - 1 }
+            : undefined,
+        }))
+        combatLog = pushLog(
+          combatLog,
+          `${enemy.name} keeps charging ${special.name}. The air tightens around it.`,
+        )
+        lastEffect = createEffect(state.stats.encountersCleared + state.stats.fightsWon + 19, {
+          kind: 'buff',
+          targetIds: [enemy.id],
+          label: 'Charging',
+          sound: 'special',
+        })
+        continue
+      }
+
+      const chargeTargetId = enemy.charging.targetId
+      const strikeTargets =
+        special.targetScope === 'all'
+          ? getLivingCreatures(roster.filter((creature) => state.selectedTeamIds.includes(creature.id)))
+          : roster.filter((creature) => creature.id === chargeTargetId && creature.currentHp > 0)
+      if (strikeTargets.length > 0) {
+        let totalDamage = 0
+        const hitIds: string[] = []
+        for (const target of strikeTargets) {
+          const resolved = applyDamage(target, {
+            elemental: special.value,
+            element: special.element ?? enemy.element,
+          })
+          roster = updateCreatureList(roster, target.id, () => resolved.creature)
+          hitIds.push(target.id)
+          totalDamage += resolved.damage
+          const breakdown = buildDamageBreakdown(resolved)
+          combatLog = pushLog(
+            combatLog,
+            `${enemy.name} unleashes ${special.name} on ${target.name} for ${resolved.damage}${breakdown ? ` (${breakdown})` : ''}.`,
+          )
+          if (resolved.blocked > 0) {
+            combatLog = pushLog(combatLog, `${target.name} blocks ${resolved.blocked} damage.`)
+          }
+          if (resolved.creature.currentHp <= 0) {
+            combatLog = pushLog(combatLog, `${target.name} falls still.`)
+          }
+        }
+
+        lastEffect = createEffect(state.stats.encountersCleared + state.stats.fightsWon + 21, {
+          kind: 'damage',
+          targetIds: hitIds,
+          label: `-${totalDamage}`,
+          value: totalDamage,
+          sound: 'special',
+          shake: totalDamage > 7,
+        })
+      }
+
+      enemies = updateCreatureList(enemies, enemy.id, (creature) => ({
+        ...creature,
+        charging: undefined,
+        specials: creature.specials.map((entry, index) =>
+          index === specialIndex ? { ...entry, currentCooldown: entry.cooldown } : entry,
+        ),
+      }))
+      continue
+    }
+
     const intent = enemy.intent ?? chooseEnemyIntent(enemy, getLivingCreatures(enemies), livingTeam)
     const fallbackTarget = chooseLowestHpTarget(livingTeam)
     const actualTargetId =
@@ -747,14 +1108,20 @@ function executeEnemyTurn(state: GameState): GameState {
         continue
       }
 
-      const resolved = applyDamage(target, enemy.attack)
+      const resolved = applyDamage(target, {
+        physical: enemy.attack + enemy.rallied,
+        elemental: enemy.elementalAttack,
+        element: enemy.element,
+      })
       roster = updateCreatureList(roster, target.id, () => resolved.creature)
-      combatLog = pushLog(combatLog, `${enemy.name} attacks ${target.name}.`)
+      enemies = updateCreatureList(enemies, enemy.id, (creature) => ({ ...creature, rallied: 0 }))
+      const breakdown = buildDamageBreakdown(resolved)
+      combatLog = pushLog(
+        combatLog,
+        `${enemy.name} attacks ${target.name} for ${resolved.damage}${breakdown ? ` (${breakdown})` : ''}.`,
+      )
       if (resolved.blocked > 0) {
         combatLog = pushLog(combatLog, `${target.name} blocks ${resolved.blocked} damage.`)
-      }
-      if (resolved.damage > 0) {
-        combatLog = pushLog(combatLog, `${target.name} loses ${resolved.damage} HP.`)
       }
       if (resolved.creature.currentHp <= 0) {
         combatLog = pushLog(combatLog, `${target.name} can no longer answer the call.`)
@@ -776,33 +1143,71 @@ function executeEnemyTurn(state: GameState): GameState {
       continue
     }
 
+    if (intent.action === 'charge') {
+      enemies = updateCreatureList(enemies, enemy.id, (creature) => ({
+        ...creature,
+        charging: {
+          specialId: special.id,
+          targetId: actualTargetId,
+          turnsRemaining: special.chargeTurns ?? 1,
+        },
+      }))
+      combatLog = pushLog(
+        combatLog,
+        `${enemy.name} begins charging ${special.name}. Hit it now or weather the burst.`,
+      )
+      lastEffect = createEffect(state.stats.encountersCleared + state.stats.fightsWon + 19, {
+        kind: 'buff',
+        targetIds: [enemy.id],
+        label: 'Charging',
+        sound: 'special',
+      })
+      continue
+    }
+
     enemies = updateSpecial(enemies, enemy.id, specialIndex, (current) => ({
       ...current,
       currentCooldown: current.cooldown,
     }))
 
     if (special.type === 'strike') {
-      const target = roster.find((creature) => creature.id === actualTargetId)
-      if (!target) {
+      const targets =
+        special.targetScope === 'all'
+          ? getLivingCreatures(roster.filter((creature) => state.selectedTeamIds.includes(creature.id)))
+          : roster.filter((creature) => creature.id === actualTargetId && creature.currentHp > 0)
+      if (targets.length === 0) {
         continue
       }
 
-      const resolved = applyDamage(target, special.value)
-      roster = updateCreatureList(roster, target.id, () => resolved.creature)
-      combatLog = pushLog(combatLog, `${enemy.name} uses ${special.name} on ${target.name}.`)
-      if (resolved.damage > 0) {
-        combatLog = pushLog(combatLog, `${target.name} loses ${resolved.damage} HP.`)
-      }
-      if (resolved.creature.currentHp <= 0) {
-        combatLog = pushLog(combatLog, `${target.name} falls still.`)
+      let totalDamage = 0
+      const hitIds: string[] = []
+      for (const target of targets) {
+        const resolved = applyDamage(target, {
+          elemental: special.value,
+          element: special.element ?? enemy.element,
+        })
+        roster = updateCreatureList(roster, target.id, () => resolved.creature)
+        hitIds.push(target.id)
+        totalDamage += resolved.damage
+        const breakdown = buildDamageBreakdown(resolved)
+        combatLog = pushLog(
+          combatLog,
+          `${enemy.name} uses ${special.name} on ${target.name} for ${resolved.damage}${breakdown ? ` (${breakdown})` : ''}.`,
+        )
+        if (resolved.blocked > 0) {
+          combatLog = pushLog(combatLog, `${target.name} blocks ${resolved.blocked} damage.`)
+        }
+        if (resolved.creature.currentHp <= 0) {
+          combatLog = pushLog(combatLog, `${target.name} falls still.`)
+        }
       }
       lastEffect = createEffect(state.stats.encountersCleared + state.stats.fightsWon + 21, {
         kind: 'damage',
-        targetIds: [target.id],
-        label: `-${resolved.damage}`,
-        value: resolved.damage,
+        targetIds: hitIds,
+        label: `-${totalDamage}`,
+        value: totalDamage,
         sound: 'special',
-        shake: resolved.damage > 7,
+        shake: totalDamage > 7,
       })
       continue
     }
@@ -811,7 +1216,7 @@ function executeEnemyTurn(state: GameState): GameState {
       const target = enemies.find((creature) => creature.id === actualTargetId) ?? enemy
       enemies = updateCreatureList(enemies, target.id, (creature) => ({
         ...creature,
-        shield: special.value,
+        shield: Math.max(creature.shield, special.value),
       }))
       combatLog = pushLog(combatLog, `${enemy.name} shields ${target.name}.`)
       lastEffect = createEffect(state.stats.encountersCleared + state.stats.fightsWon + 22, {
@@ -838,6 +1243,81 @@ function executeEnemyTurn(state: GameState): GameState {
         value: special.value,
         sound: 'heal',
       })
+      continue
+    }
+
+    if (special.type === 'weaken') {
+      const target = roster.find((creature) => creature.id === actualTargetId)
+      if (!target) {
+        continue
+      }
+      roster = updateCreatureList(roster, target.id, (creature) => ({
+        ...creature,
+        weakened: Math.max(creature.weakened, special.value),
+      }))
+      combatLog = pushLog(combatLog, `${enemy.name} leaves ${target.name} exposed.`)
+      lastEffect = createEffect(state.stats.encountersCleared + state.stats.fightsWon + 24, {
+        kind: 'buff',
+        targetIds: [target.id],
+        label: `Weaken +${special.value}`,
+        value: special.value,
+        sound: 'special',
+      })
+      continue
+    }
+
+    if (special.type === 'rally') {
+      const target = enemies.find((creature) => creature.id === actualTargetId) ?? enemy
+      enemies = updateCreatureList(enemies, target.id, (creature) => ({
+        ...creature,
+        rallied: Math.max(creature.rallied, special.value),
+      }))
+      combatLog = pushLog(combatLog, `${enemy.name} rallies ${target.name}.`)
+      lastEffect = createEffect(state.stats.encountersCleared + state.stats.fightsWon + 25, {
+        kind: 'buff',
+        targetIds: [target.id],
+        label: `Rally +${special.value}`,
+        value: special.value,
+        sound: 'special',
+      })
+      continue
+    }
+
+    if (special.type === 'poison') {
+      const target = roster.find((creature) => creature.id === actualTargetId)
+      if (!target) {
+        continue
+      }
+      roster = updateCreatureList(roster, target.id, (creature) => ({
+        ...creature,
+        poison: Math.max(creature.poison, special.value),
+        poisonTurns: Math.max(creature.poisonTurns, POISON_DURATION),
+      }))
+      combatLog = pushLog(combatLog, `${enemy.name} poisons ${target.name}.`)
+      lastEffect = createEffect(state.stats.encountersCleared + state.stats.fightsWon + 26, {
+        kind: 'buff',
+        targetIds: [target.id],
+        label: `Poison ${special.value}`,
+        value: special.value,
+        sound: 'special',
+      })
+      continue
+    }
+
+    if (special.type === 'taunt') {
+      const target = enemies.find((creature) => creature.id === actualTargetId) ?? enemy
+      enemies = updateCreatureList(enemies, target.id, (creature) => ({
+        ...creature,
+        tauntTurns: Math.max(creature.tauntTurns, special.value),
+      }))
+      combatLog = pushLog(combatLog, `${enemy.name} forces the line to answer it first.`)
+      lastEffect = createEffect(state.stats.encountersCleared + state.stats.fightsWon + 27, {
+        kind: 'buff',
+        targetIds: [target.id],
+        label: `Taunt ${special.value}`,
+        value: special.value,
+        sound: 'special',
+      })
     }
   }
 
@@ -846,8 +1326,8 @@ function executeEnemyTurn(state: GameState): GameState {
     return {
       ...state,
       phase: 'defeat',
-      roster: decrementCooldowns(roster),
-      enemies,
+      roster: decrementCooldowns(decrementTimedStates(roster)),
+      enemies: decrementTimedStates(enemies),
       combatTurn: 'player',
       combatLog: pushLog(combatLog, 'The run ends in the island hush.'),
       lastEffect:
@@ -861,9 +1341,26 @@ function executeEnemyTurn(state: GameState): GameState {
     }
   }
 
-  const tickedRoster = decrementCooldowns(roster)
-  const tickedEnemies = decrementCooldowns(enemies)
-  const nextEnemies = attachEnemyIntents(tickedEnemies, survivors)
+  const poisonOnEnemies = applyPoisonTick(
+    enemies,
+    enemies.map((creature) => creature.id),
+    combatLog,
+    state.stats.encountersCleared + state.stats.fightsWon + 28,
+  )
+  enemies = poisonOnEnemies.creatures
+  combatLog = poisonOnEnemies.combatLog
+  lastEffect = poisonOnEnemies.lastEffect ?? lastEffect
+
+  if (getLivingCreatures(enemies).length === 0) {
+    return advanceAfterWin(state, roster, enemies, combatLog, lastEffect)
+  }
+
+  const tickedRoster = decrementCooldowns(decrementTimedStates(roster))
+  const tickedEnemies = decrementCooldowns(decrementTimedStates(enemies))
+  const refreshedTeam = getLivingCreatures(
+    tickedRoster.filter((creature) => state.selectedTeamIds.includes(creature.id)),
+  )
+  const nextEnemies = attachEnemyIntents(tickedEnemies, refreshedTeam)
 
   return {
     ...state,
@@ -885,13 +1382,9 @@ function reducer(state: GameState, action: GameAction): GameState {
 
     case 'SELECT_TEAM': {
       const roster = prepareRosterForBattle(state.roster)
-      const selectedTeamIds = action.ids.filter((id) =>
-        state.availableCreatureIds.includes(id),
-      )
-      const enemies = attachEnemyIntents(
-        createEnemyGroup(state.encounterIndex),
-        roster.filter((creature) => selectedTeamIds.includes(creature.id)),
-      )
+      const selectedTeamIds = action.ids.filter((id) => state.availableCreatureIds.includes(id))
+      const selectedTeam = roster.filter((creature) => selectedTeamIds.includes(creature.id))
+      const enemies = attachEnemyIntents(createEnemyGroup(state.encounterIndex), selectedTeam)
       const enemyNames = enemies.map((enemy) => enemy.name).join(' and ')
 
       return {
@@ -921,7 +1414,9 @@ function reducer(state: GameState, action: GameAction): GameState {
       }
 
       if (action.action === 'attack') {
-        const targetId = action.targetId ?? getLivingCreatures(state.enemies)[0]?.id
+        const tauntingEnemies = getTauntingTargets(getLivingCreatures(state.enemies))
+        const targetId =
+          tauntingEnemies[0]?.id ?? action.targetId ?? getLivingCreatures(state.enemies)[0]?.id
         return targetId ? resolvePlayerAttack(state, actor, targetId) : state
       }
 
@@ -931,11 +1426,15 @@ function reducer(state: GameState, action: GameAction): GameState {
         return state
       }
 
+      const defaultEnemyTarget = getLivingCreatures(state.enemies)[0]?.id
+      const defaultAllyTarget = getLivingCreatures(
+        state.roster.filter((creature) => state.selectedTeamIds.includes(creature.id)),
+      )[0]?.id
       const targetId =
         action.targetId ??
-        (special.type === 'strike' || special.type === 'weaken'
-          ? getLivingCreatures(state.enemies)[0]?.id
-          : getLivingCreatures(state.roster.filter((creature) => state.selectedTeamIds.includes(creature.id)))[0]?.id)
+        (special.targetType === 'ally' || special.targetType === 'self' || special.type === 'guard' || special.type === 'mend' || special.type === 'rally'
+          ? defaultAllyTarget
+          : defaultEnemyTarget)
 
       return targetId ? resolvePlayerSpecial(state, actor, specialIndex, targetId) : state
     }
@@ -1055,6 +1554,21 @@ export function getRoleLabel(role: CreatureTemplate['role']) {
   }
 }
 
+export function getElementLabel(element: Element) {
+  switch (element) {
+    case 'fire':
+      return 'Fire'
+    case 'water':
+      return 'Water'
+    case 'nature':
+      return 'Nature'
+    case 'shadow':
+      return 'Shadow'
+    default:
+      return 'Unknown'
+  }
+}
+
 export function getIntentLabel(creature: Creature, enemyTeam: Creature[], playerTeam: Creature[]) {
   if (!creature.intent) {
     return 'Waiting'
@@ -1062,11 +1576,17 @@ export function getIntentLabel(creature: Creature, enemyTeam: Creature[], player
 
   const targetPool = creature.intent.action === 'attack' ? playerTeam : [...enemyTeam, ...playerTeam]
   const target = targetPool.find((candidate) => candidate.id === creature.intent?.targetId)
+  const special = creature.specials.find((entry) => entry.id === creature.intent?.specialId)
 
   if (creature.intent.action === 'attack') {
     return `Intent: attack ${target?.name ?? 'target'}`
   }
 
-  const special = creature.specials.find((entry) => entry.id === creature.intent?.specialId)
+  if (creature.intent.action === 'charge') {
+    const targetLabel = special?.targetScope === 'all' ? 'all foes' : target?.name ?? 'target'
+    const turns = creature.charging?.turnsRemaining ?? special?.chargeTurns ?? 1
+    return `Intent: charging ${special?.name ?? 'special'} -> ${targetLabel} (${turns})`
+  }
+
   return `Intent: ${special?.name ?? 'special'} -> ${target?.name ?? 'target'}`
 }

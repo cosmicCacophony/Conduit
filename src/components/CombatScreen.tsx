@@ -36,6 +36,10 @@ export function CombatScreen({
 }: CombatScreenProps) {
   const livingTeam = useMemo(() => team.filter((creature) => creature.currentHp > 0), [team])
   const livingEnemies = useMemo(() => enemies.filter((creature) => creature.currentHp > 0), [enemies])
+  const tauntingEnemies = useMemo(
+    () => livingEnemies.filter((creature) => creature.tauntTurns > 0),
+    [livingEnemies],
+  )
   const [selectedActorId, setSelectedActorId] = useState<string | null>(livingTeam[0]?.id ?? null)
   const [pendingTarget, setPendingTarget] = useState<PendingTarget | null>(null)
 
@@ -52,9 +56,11 @@ export function CombatScreen({
       return
     }
 
-    if (livingEnemies.length === 1) {
+    const validTargets = tauntingEnemies.length > 0 ? tauntingEnemies : livingEnemies
+
+    if (validTargets.length === 1) {
       setPendingTarget(null)
-      onAction(actor.id, 'attack', undefined, livingEnemies[0].id)
+      onAction(actor.id, 'attack', undefined, validTargets[0].id)
       return
     }
 
@@ -71,7 +77,13 @@ export function CombatScreen({
       return
     }
 
-    if (special.type === 'strike' || special.type === 'weaken') {
+    if (special.targetType === 'enemy' || special.type === 'strike' || special.type === 'weaken' || special.type === 'poison') {
+      if (special.targetScope === 'all') {
+        setPendingTarget(null)
+        onAction(actor.id, 'special', specialIndex, livingEnemies[0]?.id)
+        return
+      }
+
       if (livingEnemies.length === 1) {
         setPendingTarget(null)
         onAction(actor.id, 'special', specialIndex, livingEnemies[0].id)
@@ -79,6 +91,12 @@ export function CombatScreen({
       }
 
       setPendingTarget({ actorId: actor.id, action: 'special', specialIndex, targetSide: 'enemy' })
+      return
+    }
+
+    if (special.targetType === 'self') {
+      setPendingTarget(null)
+      onAction(actor.id, 'special', specialIndex, actor.id)
       return
     }
 
@@ -186,11 +204,19 @@ export function CombatScreen({
         <div className="target-panel">
           <p className="muted">
             {visiblePendingTarget.targetSide === 'enemy'
-              ? 'Choose who takes the hit.'
+              ? tauntingEnemies.length > 0 && visiblePendingTarget.action === 'attack'
+                ? 'A taunt is active. Basic attacks must answer it first.'
+                : 'Choose who takes the hit.'
               : 'Choose who receives the effect.'}
           </p>
           <div className="target-list">
-            {(visiblePendingTarget.targetSide === 'enemy' ? livingEnemies : livingTeam).map((creature) => (
+            {(
+              visiblePendingTarget.targetSide === 'enemy'
+                ? visiblePendingTarget.action === 'attack' && tauntingEnemies.length > 0
+                  ? tauntingEnemies
+                  : livingEnemies
+                : livingTeam
+            ).map((creature) => (
               <button
                 key={creature.id}
                 className="target-button"

@@ -1,4 +1,4 @@
-import { getIntentLabel, getRoleLabel } from '../hooks/useGameState'
+import { getElementLabel, getIntentLabel, getRoleLabel } from '../hooks/useGameState'
 import type { CombatEffect, Creature } from '../types'
 
 type CreatureCardProps = {
@@ -29,6 +29,7 @@ export function CreatureCard({
   const hpPercent = creature.maxHp === 0 ? 0 : (creature.currentHp / creature.maxHp) * 100
   const className = [
     'creature-card',
+    `creature-card--${creature.element}`,
     selected ? 'is-selected' : '',
     disabled ? 'is-disabled' : '',
     compact ? 'is-compact' : '',
@@ -51,16 +52,21 @@ export function CreatureCard({
         </span>
         <div>
           <h3>{creature.name}</h3>
-          <p>{getRoleLabel(creature.role)}</p>
+          <p>
+            {getRoleLabel(creature.role)} · {getElementLabel(creature.element)}
+          </p>
         </div>
       </div>
 
       <div className="creature-card__stats">
         <span>HP {creature.currentHp}/{creature.maxHp}</span>
-        <span>ATK {creature.attack}</span>
+        <span>ATK {creature.attack} + {creature.elementalAttack} {getElementLabel(creature.element).toLowerCase()}</span>
         <span>Shield {creature.shield}</span>
         {creature.weakened > 0 ? <span>Weakened {creature.weakened}</span> : null}
         {creature.rallied > 0 ? <span>Rally {creature.rallied}</span> : null}
+        {creature.poisonTurns > 0 ? <span>Poison {creature.poison} for {creature.poisonTurns}</span> : null}
+        {creature.tauntTurns > 0 ? <span>Taunt {creature.tauntTurns}</span> : null}
+        {creature.charging ? <span>Charging {creature.charging.turnsRemaining}</span> : null}
       </div>
 
       <div className="hp-bar" aria-hidden="true">
@@ -72,8 +78,11 @@ export function CreatureCard({
           <div key={special.id} className="creature-card__special-row">
             <strong>{special.name}</strong>
             <span>
-              {special.type} {special.value} | cd {special.cooldown}
+              {[special.element ? getElementLabel(special.element) : null, special.type, special.value]
+                .filter(Boolean)
+                .join(' ')} | cd {special.cooldown}
             </span>
+            {special.chargeTurns ? <span>charge {special.chargeTurns}</span> : null}
             <span>{special.currentCooldown > 0 ? `ready in ${special.currentCooldown}` : 'ready'}</span>
             {showLockedSpecials && index === 0 && creature.specials.length === 1 ? (
               <span>Second special locked</span>
