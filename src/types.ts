@@ -78,6 +78,7 @@ export interface Creature extends Omit<CreatureTemplate, 'specials'> {
   poisonTurns: number
   specials: SpecialState[]
   intent?: CombatIntent
+  possibleIntents?: CombatIntent[]
   charging?: ChargeState
   lastStandUsed: boolean
 }
@@ -87,6 +88,9 @@ export interface EncounterDefinition {
   type: EncounterType
   text: string
   enemyGroupPool?: string[]
+  resolvedEnemyGroupId?: string
+  previewEnemyName?: string
+  previewEnemyElement?: Element
   rewardTier?: RewardTier
   eventId?: string
 }
@@ -155,6 +159,7 @@ export type RewardType =
 export interface GameState {
   phase: GamePhase
   roster: Creature[]
+  runMap: MapLayer[]
   availableCreatureIds: string[]
   selectedTeamIds: string[]
   activeCreatureId: string | null

@@ -31,20 +31,28 @@ export function getElementLabel(element: Element) {
 }
 
 export function getIntentLabel(creature: Creature) {
-  if (!creature.intent) {
-    return 'Waiting'
-  }
-
-  const special = creature.specials.find((entry) => entry.id === creature.intent?.specialId)
-
-  if (creature.intent.action === 'attack') {
-    return 'Intent: attack'
-  }
-
-  if (creature.intent.action === 'charge') {
-    const turns = creature.charging?.turnsRemaining ?? special?.chargeTurns ?? 1
+  if (creature.charging) {
+    const special = creature.specials.find((entry) => entry.id === creature.charging?.specialId)
+    const turns = creature.charging.turnsRemaining ?? special?.chargeTurns ?? 1
     return `Intent: charging ${special?.name ?? 'special'} (${turns})`
   }
 
-  return `Intent: ${special?.name ?? 'special'}`
+  if (!creature.possibleIntents || creature.possibleIntents.length === 0) {
+    return 'Waiting'
+  }
+
+  const labels = creature.possibleIntents.map((intent) => {
+    if (intent.action === 'attack') {
+      return 'attack'
+    }
+
+    const special = creature.specials.find((entry) => entry.id === intent.specialId)
+    if (intent.action === 'charge') {
+      return `charge ${special?.name ?? 'special'}`
+    }
+
+    return special?.name ?? 'special'
+  })
+
+  return `Intent: ${labels.join(' or ')}`
 }

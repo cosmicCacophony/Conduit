@@ -4,7 +4,7 @@ export const ARTIFACTS: ArtifactDefinition[] = [
   {
     id: 'ember-ring',
     name: 'Ember Ring',
-    description: 'All fire elemental damage you deal gains +3.',
+    description: 'All fire elemental damage you deal gains +15.',
     emoji: '🔥',
   },
   {
@@ -16,7 +16,7 @@ export const ARTIFACTS: ArtifactDefinition[] = [
   {
     id: 'thorned-roots',
     name: 'Thorned Roots',
-    description: 'Switching in deals 2 nature damage to the enemy.',
+    description: 'Switching in deals 10 nature damage to the enemy.',
     emoji: '🌿',
   },
   {
@@ -28,13 +28,13 @@ export const ARTIFACTS: ArtifactDefinition[] = [
   {
     id: 'venom-fang',
     name: 'Venom Fang',
-    description: 'Basic attacks apply 1 poison for 2 turns.',
+    description: 'Basic attacks apply 5 poison for 2 turns.',
     emoji: '🦷',
   },
   {
     id: 'iron-shell',
     name: 'Iron Shell',
-    description: 'Each creature starts each fight with 3 shield.',
+    description: 'Each creature starts each fight with 15 shield.',
     emoji: '🛡️',
   },
   {
@@ -52,7 +52,7 @@ export const ARTIFACTS: ArtifactDefinition[] = [
   {
     id: 'burning-rage',
     name: 'Burning Rage',
-    description: 'Creatures below 30% HP gain +3 attack.',
+    description: 'Creatures below 30% HP gain +15 attack.',
     emoji: '🕯️',
   },
   {

@@ -130,10 +130,10 @@ export function RewardScreen({
           {selectedCreatureId ? (
             <div className="choice-row">
               <button className="choice-button" type="button" onClick={() => onApply({ type: 'hp' }, selectedCreatureId)}>
-                +2 Max HP and heal 2
+                +10 Max HP and heal 10
               </button>
               <button className="choice-button" type="button" onClick={() => onApply({ type: 'atk' }, selectedCreatureId)}>
-                +1 Attack
+                +5 Attack
               </button>
               <button className="choice-button" type="button" onClick={() => onApply({ type: 'speed' }, selectedCreatureId)}>
                 +1 Speed

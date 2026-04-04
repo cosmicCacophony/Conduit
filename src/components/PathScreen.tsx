@@ -1,3 +1,4 @@
+import { getElementLabel } from '../hooks/useGameState'
 import type { EncounterDefinition } from '../types'
 
 type PathScreenProps = {
@@ -19,6 +20,20 @@ export function PathScreen({ layerIndex, options, onChoose }: PathScreenProps) {
           <button key={option.id} className="choice-button" type="button" onClick={() => onChoose(option.id)}>
             <strong>{option.type}</strong>
             <br />
+            {option.type === 'fight' && option.previewEnemyName ? (
+              <>
+                <small>
+                  Known threat: {option.previewEnemyName} ({getElementLabel(option.previewEnemyElement!).toLowerCase()})
+                </small>
+                <br />
+              </>
+            ) : null}
+            {(option.type === 'elite' || option.type === 'boss') && !option.previewEnemyName ? (
+              <>
+                <small>Known threat: ???</small>
+                <br />
+              </>
+            ) : null}
             <small>{option.text}</small>
           </button>
         ))}

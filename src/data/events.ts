@@ -27,7 +27,7 @@ export const EVENTS: Record<string, EventDefinition> = {
       {
         id: 'buy-power',
         label: 'Take the sharper edge',
-        description: 'One creature gains +2 attack and loses 2 max HP.',
+        description: 'One creature gains +10 attack and loses 10 max HP.',
         requiresCreature: true,
       },
       {
@@ -45,7 +45,7 @@ export const EVENTS: Record<string, EventDefinition> = {
       {
         id: 'sacrifice-slot',
         label: 'Offer versatility',
-        description: 'One creature loses its second special slot potential, but its first special gains +4 value and -1 cooldown.',
+        description: 'One creature loses its second special slot potential, but its first special gains +20 value and -1 cooldown.',
         requiresCreature: true,
       },
       {
