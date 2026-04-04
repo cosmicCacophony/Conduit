@@ -18,28 +18,25 @@ export function TeamSelectScreen({
   encounterText,
   onConfirm,
 }: TeamSelectScreenProps) {
-  const requiredCount = Math.min(2, creatures.length)
-  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const minCount = Math.min(3, creatures.length)
+  const maxCount = Math.min(4, creatures.length)
+  const [selectedIds, setSelectedIds] = useState<string[]>(creatures.slice(0, minCount).map((creature) => creature.id))
   const fallenCreatures = useMemo(
     () => fullRoster.filter((creature) => creature.currentHp <= 0),
     [fullRoster],
   )
 
-  const helperText = useMemo(() => {
-    if (requiredCount === 1) {
-      return 'Only one creature can still answer. Bring it.'
-    }
-
-    return 'Choose any two living creatures. Fallen creatures cannot return this run.'
-  }, [requiredCount])
-
   function toggleSelection(id: string) {
     setSelectedIds((current) => {
       if (current.includes(id)) {
+        if (current.length <= minCount) {
+          return current
+        }
+
         return current.filter((entry) => entry !== id)
       }
 
-      if (current.length >= requiredCount) {
+      if (current.length >= maxCount) {
         return [...current.slice(1), id]
       }
 
@@ -50,9 +47,11 @@ export function TeamSelectScreen({
   return (
     <section className="screen">
       <p className="eyebrow">Encounter {encounterIndex + 1}</p>
-      <h2>Attune your pair</h2>
+      <h2>Choose your roster</h2>
       <p className="screen-copy">{encounterText}</p>
-      <p className="screen-copy muted">{helperText}</p>
+      <p className="screen-copy muted">
+        Bring {minCount === maxCount ? minCount : `${minCount}-${maxCount}`} living creatures. The first selected will start active.
+      </p>
 
       <div className="screen-section">
         <p className="eyebrow">Available</p>
@@ -68,6 +67,18 @@ export function TeamSelectScreen({
         </div>
       </div>
 
+      {selectedIds.length > 0 ? (
+        <div className="summary-list">
+          <h3>Starting Order</h3>
+          <ul>
+            {selectedIds.map((id, index) => {
+              const creature = creatures.find((entry) => entry.id === id)
+              return <li key={id}>{index === 0 ? `Lead: ${creature?.name ?? id}` : creature?.name ?? id}</li>
+            })}
+          </ul>
+        </div>
+      ) : null}
+
       {fallenCreatures.length > 0 ? (
         <div className="screen-section">
           <p className="eyebrow">Fallen This Run</p>
@@ -82,7 +93,7 @@ export function TeamSelectScreen({
       <button
         className="primary-button"
         type="button"
-        disabled={selectedIds.length !== requiredCount}
+        disabled={selectedIds.length < minCount || selectedIds.length > maxCount}
         onClick={() => onConfirm(selectedIds)}
       >
         Enter battle

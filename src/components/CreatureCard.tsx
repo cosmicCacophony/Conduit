@@ -6,8 +6,6 @@ type CreatureCardProps = {
   selected?: boolean
   disabled?: boolean
   compact?: boolean
-  enemyTeam?: Creature[]
-  playerTeam?: Creature[]
   effect?: CombatEffect | null
   showIntent?: boolean
   showLockedSpecials?: boolean
@@ -19,8 +17,6 @@ export function CreatureCard({
   selected = false,
   disabled = false,
   compact = false,
-  enemyTeam = [],
-  playerTeam = [],
   effect = null,
   showIntent = false,
   showLockedSpecials = false,
@@ -61,12 +57,13 @@ export function CreatureCard({
       <div className="creature-card__stats">
         <span>HP {creature.currentHp}/{creature.maxHp}</span>
         <span>ATK {creature.attack} + {creature.elementalAttack} {getElementLabel(creature.element).toLowerCase()}</span>
+        <span>SPD {creature.speed}</span>
         <span>Shield {creature.shield}</span>
         {creature.weakened > 0 ? <span>Weakened {creature.weakened}</span> : null}
         {creature.rallied > 0 ? <span>Rally {creature.rallied}</span> : null}
         {creature.poisonTurns > 0 ? <span>Poison {creature.poison} for {creature.poisonTurns}</span> : null}
-        {creature.tauntTurns > 0 ? <span>Taunt {creature.tauntTurns}</span> : null}
         {creature.charging ? <span>Charging {creature.charging.turnsRemaining}</span> : null}
+        {creature.lastStandUsed ? <span>Last Stand spent</span> : null}
       </div>
 
       <div className="hp-bar" aria-hidden="true">
@@ -93,7 +90,7 @@ export function CreatureCard({
 
       {showIntent ? (
         <div className="creature-card__intent">
-          <span>{getIntentLabel(creature, enemyTeam, playerTeam)}</span>
+          <span>{getIntentLabel(creature)}</span>
         </div>
       ) : null}
 

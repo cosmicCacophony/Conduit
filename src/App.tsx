@@ -3,33 +3,24 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { playSoundCue } from './audio'
 import { CombatScreen } from './components/CombatScreen'
+import { EventScreen } from './components/EventScreen'
 import { GameOverScreen } from './components/GameOverScreen'
+import { PathScreen } from './components/PathScreen'
 import { RecruitScreen } from './components/RecruitScreen'
 import { RestScreen } from './components/RestScreen'
 import { RewardScreen } from './components/RewardScreen'
 import { TeamSelectScreen } from './components/TeamSelectScreen'
 import { TitleScreen } from './components/TitleScreen'
-import { useGameState } from './hooks/useGameState'
+import { useRunState } from './hooks/useRunState'
 import { getRunHistorySummary, readRunHistory, writeRunHistory } from './storage'
 import type { RewardType, RunHistoryEntry } from './types'
 
 function App() {
-  const { state, dispatch, availableCreatures, selectedTeam } = useGameState()
+  const { state, dispatch, availableCreatures, selectedTeam, activeCreature, currentEnemy, currentEvent } =
+    useRunState()
   const [history] = useState<RunHistoryEntry[]>(() => readRunHistory())
   const savedRunRef = useRef<string | null>(null)
   const playedEffectRef = useRef<number | null>(null)
-
-  useEffect(() => {
-    if (state.phase !== 'combat' || state.combatTurn !== 'enemy' || state.enemies.length === 0) {
-      return
-    }
-
-    const timeout = window.setTimeout(() => {
-      dispatch({ type: 'ENEMY_TURN' })
-    }, 900)
-
-    return () => window.clearTimeout(timeout)
-  }, [dispatch, state.combatTurn, state.enemies.length, state.phase])
 
   useEffect(() => {
     if (!state.lastEffect || playedEffectRef.current === state.lastEffect.tick) {
@@ -67,8 +58,8 @@ function App() {
 
   const historySummary = useMemo(() => getRunHistorySummary(history), [history])
 
-  function handleReward(creatureId: string, reward: RewardType) {
-    dispatch({ type: 'APPLY_REWARD', creatureId, reward })
+  function handleReward(reward: RewardType, creatureId?: string) {
+    dispatch({ type: 'APPLY_REWARD', reward, creatureId })
     dispatch({ type: 'NEXT_ENCOUNTER' })
   }
 
@@ -87,6 +78,9 @@ function App() {
       case 'title':
         return <TitleScreen onStart={() => dispatch({ type: 'START_RUN' })} summary={historySummary} />
 
+      case 'pathChoice':
+        return <PathScreen layerIndex={state.encounterIndex} options={state.pathOptions} onChoose={(encounterId) => dispatch({ type: 'CHOOSE_PATH', encounterId })} />
+
       case 'teamSelect':
         return (
           <TeamSelectScreen
@@ -99,21 +93,18 @@ function App() {
         )
 
       case 'combat':
-        if (state.enemies.length === 0) {
-          return null
-        }
-
         return (
           <CombatScreen
             team={selectedTeam}
+            activeCreature={activeCreature}
             enemies={state.enemies}
-            combatTurn={state.combatTurn}
-            actedCreatureIds={state.actedCreatureIds}
+            enemyQueueIndex={state.enemyQueueIndex}
+            freeSwitch={state.freeSwitch}
             combatLog={state.combatLog}
             lastEffect={state.lastEffect}
-            onAction={(creatureId, action, specialIndex, targetId) =>
-              dispatch({ type: 'PLAYER_ACTION', creatureId, action, specialIndex, targetId })
-            }
+            artifacts={state.artifacts}
+            onAction={(action, specialIndex) => dispatch({ type: 'PLAYER_ACTION', action, specialIndex })}
+            onSwitch={(creatureId) => dispatch({ type: 'SWITCH', creatureId })}
           />
         )
 
@@ -123,6 +114,7 @@ function App() {
             rewardTier={state.rewardTier}
             creatures={state.roster}
             learnOffers={state.learnOffers}
+            artifactOffers={state.artifactOffers}
             onApply={handleReward}
           />
         )
@@ -144,6 +136,15 @@ function App() {
             onContinue={() => dispatch({ type: 'REST_AND_CONTINUE' })}
           />
         )
+
+      case 'event':
+        return currentEvent ? (
+          <EventScreen
+            event={currentEvent}
+            creatures={state.roster}
+            onResolve={(choiceId, creatureId) => dispatch({ type: 'RESOLVE_EVENT', choiceId, creatureId })}
+          />
+        ) : null
 
       case 'victory':
         return (
@@ -173,6 +174,7 @@ function App() {
   return (
     <main className="app-shell">
       <div className="app-frame">{renderScreen()}</div>
+      {currentEnemy ? <span hidden>{currentEnemy.id}</span> : null}
     </main>
   )
 }

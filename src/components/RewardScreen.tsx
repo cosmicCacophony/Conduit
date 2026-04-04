@@ -1,14 +1,14 @@
 import { useMemo, useState } from 'react'
 
-import { CreatureCard } from './CreatureCard'
-import type { Creature, RewardType, SpecialTemplate } from '../types'
 import { getElementLabel } from '../hooks/useGameState'
+import type { ArtifactDefinition, Creature, RewardType, SpecialTemplate } from '../types'
 
 type RewardScreenProps = {
   rewardTier: 'normal' | 'elite'
   creatures: Creature[]
-  onApply: (creatureId: string, reward: RewardType) => void
   learnOffers: SpecialTemplate[]
+  artifactOffers: ArtifactDefinition[]
+  onApply: (reward: RewardType, creatureId?: string) => void
 }
 
 function getSpecialDescription(special: SpecialTemplate) {
@@ -16,30 +16,30 @@ function getSpecialDescription(special: SpecialTemplate) {
     case 'strike':
       return `Deal ${special.value} typed damage`
     case 'guard':
-      return `Give an ally ${special.value} shield for the next hit`
+      return `Gain ${special.value} shield`
     case 'mend':
-      return `Heal an ally for ${special.value} HP`
+      return `Heal ${special.value} HP`
     case 'weaken':
-      return `Mark an enemy so the next hit deals +${special.value}`
+      return `Mark the enemy so the next hit deals +${special.value}`
     case 'rally':
-      return `Give an ally +${special.value} attack on their next attack`
+      return `Gain +${special.value} on the next basic attack`
     case 'poison':
-      return `Poison an enemy for ${special.value} each turn`
-    case 'taunt':
-      return `Force attacks into this target for ${special.value} turn${special.value === 1 ? '' : 's'}`
+      return `Poison for ${special.value} each round`
     default:
       return `${special.type} ${special.value}`
   }
 }
 
-export function RewardScreen({ rewardTier, creatures, onApply, learnOffers }: RewardScreenProps) {
+export function RewardScreen({
+  rewardTier,
+  creatures,
+  learnOffers,
+  artifactOffers,
+  onApply,
+}: RewardScreenProps) {
   const [selectedCreatureId, setSelectedCreatureId] = useState<string | null>(creatures[0]?.id ?? null)
   const [selectedLearnId, setSelectedLearnId] = useState<string | null>(learnOffers[0]?.id ?? null)
-
-  const selectedCreature = useMemo(
-    () => creatures.find((creature) => creature.id === selectedCreatureId) ?? null,
-    [creatures, selectedCreatureId],
-  )
+  const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(artifactOffers[0]?.id ?? null)
 
   const selectedLearn = useMemo(
     () => learnOffers.find((offer) => offer.id === selectedLearnId) ?? null,
@@ -50,96 +50,29 @@ export function RewardScreen({ rewardTier, creatures, onApply, learnOffers }: Re
       selectedLearn
         ? creatures.filter(
             (creature) =>
+              creature.currentHp > 0 &&
               creature.specials.length < 2 &&
               creature.specials.every((special) => special.id !== selectedLearn.id),
           )
         : [],
     [creatures, selectedLearn],
   )
-  const showUpgrade = Boolean(selectedCreature && selectedCreature.specials.length > 0)
 
   return (
     <section className="screen">
       <p className="eyebrow">{rewardTier === 'elite' ? 'Elite reward' : 'After the fight'}</p>
-      <h2>{rewardTier === 'elite' ? 'Claim a deeper edge' : 'Deepen the bond'}</h2>
+      <h2>{rewardTier === 'elite' ? 'Choose one deeper edge' : 'Choose one path forward'}</h2>
       <p className="screen-copy">
-        Pick a creature to grow directly, or draft one shared special and decide who should learn it.
-      </p>
-      <p className="screen-copy muted">
-        {rewardTier === 'elite'
-          ? 'The current tightens: "Some lessons are only given under pressure."'
-          : 'Something in the island listens back as the bond deepens.'}
+        You only get one lane. Draft new coverage, train a creature, take a team-wide rest, or claim an artifact after elite fights.
       </p>
 
-      <div className="card-grid">
-        {creatures.map((creature) => (
-          <CreatureCard
-            key={creature.id}
-            creature={creature}
-            selected={creature.id === selectedCreatureId}
-            showLockedSpecials
-            onClick={() => setSelectedCreatureId(creature.id)}
-          />
-        ))}
-      </div>
-
-      {selectedCreature ? (
-        <div className="reward-panel">
-          <div className="choice-row">
-            <button className="choice-button" type="button" onClick={() => onApply(selectedCreature.id, { type: 'hp' })}>
-              Hold on
-              <br />
-              <small>+2 Max HP and heal 2</small>
-            </button>
-            <button className="choice-button" type="button" onClick={() => onApply(selectedCreature.id, { type: 'atk' })}>
-              Press forward
-              <br />
-              <small>+1 Attack</small>
-            </button>
-          </div>
-
-          {showUpgrade ? (
-            <div className="upgrade-grid">
-              {selectedCreature.specials.map((special) => (
-                <div key={special.id} className="upgrade-card">
-                  <strong>{special.name}</strong>
-                  <span>{getSpecialDescription(special)}</span>
-                  <span>Value {special.value}</span>
-                  <span>Cooldown {special.cooldown}</span>
-                  <div className="choice-row">
-                    <button
-                      className="choice-button"
-                      type="button"
-                      onClick={() => onApply(selectedCreature.id, { type: 'upgradeValue', specialId: special.id })}
-                    >
-                      Strengthen
-                      <br />
-                      <small>+2 value</small>
-                    </button>
-                    <button
-                      className="choice-button"
-                      type="button"
-                      onClick={() =>
-                        onApply(selectedCreature.id, { type: 'upgradeCooldown', specialId: special.id })
-                      }
-                    >
-                      Refine
-                      <br />
-                      <small>-1 cooldown</small>
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : null}
-
+      <div className="upgrade-grid">
+        <div className="upgrade-card">
+          <strong>Draft</strong>
+          <span>Pick one special, then choose who learns it.</span>
           {learnOffers.length > 0 ? (
-            <div className="screen-section">
-              <p className="eyebrow">Shared draft</p>
-              <p className="screen-copy muted">
-                Pick one special, then decide which creature should carry that coverage.
-              </p>
-              <div className="upgrade-grid">
+            <>
+              <div className="choice-row">
                 {learnOffers.map((offer) => (
                   <button
                     key={offer.id}
@@ -147,46 +80,106 @@ export function RewardScreen({ rewardTier, creatures, onApply, learnOffers }: Re
                     type="button"
                     onClick={() => setSelectedLearnId(offer.id)}
                   >
-                    <strong>{offer.name}</strong>
+                    {offer.name}
                     <br />
                     <small>
                       {[offer.element ? getElementLabel(offer.element) : null, offer.type].filter(Boolean).join(' · ')}
                     </small>
-                    <br />
-                    <small>{getSpecialDescription(offer)}</small>
-                    <br />
-                    <small>Cooldown {offer.cooldown}{offer.chargeTurns ? ` · Charge ${offer.chargeTurns}` : ''}</small>
                   </button>
                 ))}
               </div>
-
               {selectedLearn ? (
-                <div className="upgrade-grid">
-                  {eligibleLearners.length > 0 ? (
-                    eligibleLearners.map((creature) => (
-                      <button
-                        key={`${selectedLearn.id}-${creature.id}`}
-                        className="choice-button"
-                        type="button"
-                        onClick={() => onApply(creature.id, { type: 'learn', specialId: selectedLearn.id })}
-                      >
-                        Teach {selectedLearn.name} to {creature.name}
-                        <br />
-                        <small>{creature.specials.length}/2 specials</small>
-                      </button>
-                    ))
-                  ) : (
-                    <div className="upgrade-card">
-                      <strong>No open slot</strong>
-                      <span>Every creature already knows two specials or already has this one.</span>
-                    </div>
-                  )}
+                <div className="choice-row">
+                  {eligibleLearners.map((creature) => (
+                    <button
+                      key={`${selectedLearn.id}-${creature.id}`}
+                      className="choice-button"
+                      type="button"
+                      onClick={() => onApply({ type: 'learn', specialId: selectedLearn.id }, creature.id)}
+                    >
+                      Teach {selectedLearn.name} to {creature.name}
+                      <br />
+                      <small>{getSpecialDescription(selectedLearn)}</small>
+                    </button>
+                  ))}
                 </div>
               ) : null}
+            </>
+          ) : (
+            <span>No valid draft options remain.</span>
+          )}
+        </div>
+
+        <div className="upgrade-card">
+          <strong>Train</strong>
+          <span>Choose one creature and sharpen one stat.</span>
+          <div className="card-grid">
+            {creatures.map((creature) => (
+              <button
+                key={creature.id}
+                className={`choice-button ${creature.id === selectedCreatureId ? 'is-selected' : ''}`}
+                type="button"
+                onClick={() => setSelectedCreatureId(creature.id)}
+              >
+                {creature.name}
+                <br />
+                <small>HP {creature.currentHp}/{creature.maxHp} · ATK {creature.attack} · SPD {creature.speed}</small>
+              </button>
+            ))}
+          </div>
+          {selectedCreatureId ? (
+            <div className="choice-row">
+              <button className="choice-button" type="button" onClick={() => onApply({ type: 'hp' }, selectedCreatureId)}>
+                +2 Max HP and heal 2
+              </button>
+              <button className="choice-button" type="button" onClick={() => onApply({ type: 'atk' }, selectedCreatureId)}>
+                +1 Attack
+              </button>
+              <button className="choice-button" type="button" onClick={() => onApply({ type: 'speed' }, selectedCreatureId)}>
+                +1 Speed
+              </button>
             </div>
           ) : null}
         </div>
-      ) : null}
+
+        <div className="upgrade-card">
+          <strong>Rest</strong>
+          <span>Heal every living creature for 40% of its maximum HP.</span>
+          <button className="choice-button" type="button" onClick={() => onApply({ type: 'rest' })}>
+            Take the team-wide rest
+          </button>
+        </div>
+
+        {artifactOffers.length > 0 ? (
+          <div className="upgrade-card">
+            <strong>Artifact</strong>
+            <span>Claim one run-defining relic.</span>
+            <div className="choice-row">
+              {artifactOffers.map((artifact) => (
+                <button
+                  key={artifact.id}
+                  className={`choice-button ${artifact.id === selectedArtifactId ? 'is-selected' : ''}`}
+                  type="button"
+                  onClick={() => setSelectedArtifactId(artifact.id)}
+                >
+                  {artifact.emoji} {artifact.name}
+                  <br />
+                  <small>{artifact.description}</small>
+                </button>
+              ))}
+            </div>
+            {selectedArtifactId ? (
+              <button
+                className="choice-button"
+                type="button"
+                onClick={() => onApply({ type: 'artifact', artifactId: selectedArtifactId })}
+              >
+                Take this artifact
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
     </section>
   )
 }

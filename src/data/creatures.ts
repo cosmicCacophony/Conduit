@@ -8,6 +8,7 @@ export const STARTER_CREATURES: CreatureTemplate[] = [
     role: 'offense',
     element: 'fire',
     elementalAttack: 2,
+    speed: 7,
     maxHp: 10,
     attack: 4,
     specials: [
@@ -21,10 +22,11 @@ export const STARTER_CREATURES: CreatureTemplate[] = [
     role: 'defense',
     element: 'nature',
     elementalAttack: 1,
+    speed: 3,
     maxHp: 18,
     attack: 2,
     specials: [
-      { id: 'stone-wall', name: 'Stone Wall', type: 'guard', value: 8, cooldown: 2, element: 'nature', targetType: 'ally' },
+      { id: 'stone-wall', name: 'Stone Wall', type: 'guard', value: 8, cooldown: 2, element: 'nature', targetType: 'self' },
     ],
   },
   {
@@ -34,10 +36,11 @@ export const STARTER_CREATURES: CreatureTemplate[] = [
     role: 'support',
     element: 'water',
     elementalAttack: 1,
+    speed: 5,
     maxHp: 13,
     attack: 2,
     specials: [
-      { id: 'mend', name: 'Mend', type: 'mend', value: 8, cooldown: 2, element: 'water', targetType: 'ally' },
+      { id: 'mend', name: 'Mend', type: 'mend', value: 8, cooldown: 2, element: 'water', targetType: 'self' },
     ],
   },
 ]
@@ -50,10 +53,11 @@ export const RECRUITABLE_CREATURES: CreatureTemplate[] = [
     role: 'defense',
     element: 'nature',
     elementalAttack: 1,
+    speed: 3,
     maxHp: 16,
     attack: 3,
     specials: [
-      { id: 'brace', name: 'Brace', type: 'guard', value: 7, cooldown: 2, element: 'nature', targetType: 'ally' },
+      { id: 'brace', name: 'Brace', type: 'guard', value: 7, cooldown: 2, element: 'nature', targetType: 'self' },
     ],
   },
   {
@@ -63,6 +67,7 @@ export const RECRUITABLE_CREATURES: CreatureTemplate[] = [
     role: 'offense',
     element: 'fire',
     elementalAttack: 2,
+    speed: 6,
     maxHp: 9,
     attack: 5,
     specials: [
@@ -76,10 +81,11 @@ export const RECRUITABLE_CREATURES: CreatureTemplate[] = [
     role: 'support',
     element: 'water',
     elementalAttack: 1,
+    speed: 5,
     maxHp: 14,
     attack: 2,
     specials: [
-      { id: 'soothe', name: 'Soothe', type: 'mend', value: 9, cooldown: 3, element: 'water', targetType: 'ally' },
+      { id: 'soothe', name: 'Soothe', type: 'mend', value: 9, cooldown: 3, element: 'water', targetType: 'self' },
     ],
   },
   {
@@ -89,6 +95,7 @@ export const RECRUITABLE_CREATURES: CreatureTemplate[] = [
     role: 'offense',
     element: 'nature',
     elementalAttack: 2,
+    speed: 6,
     maxHp: 12,
     attack: 4,
     specials: [
@@ -102,10 +109,11 @@ export const RECRUITABLE_CREATURES: CreatureTemplate[] = [
     role: 'support',
     element: 'water',
     elementalAttack: 2,
+    speed: 4,
     maxHp: 12,
     attack: 3,
     specials: [
-      { id: 'calm-tide', name: 'Calm Tide', type: 'mend', value: 6, cooldown: 2, element: 'water', targetType: 'ally' },
+      { id: 'calm-tide', name: 'Calm Tide', type: 'mend', value: 6, cooldown: 2, element: 'water', targetType: 'self' },
     ],
   },
   {
@@ -115,10 +123,11 @@ export const RECRUITABLE_CREATURES: CreatureTemplate[] = [
     role: 'defense',
     element: 'nature',
     elementalAttack: 1,
+    speed: 2,
     maxHp: 17,
     attack: 3,
     specials: [
-      { id: 'rooted', name: 'Rooted', type: 'guard', value: 7, cooldown: 3, element: 'nature', targetType: 'ally' },
+      { id: 'rooted', name: 'Rooted', type: 'guard', value: 7, cooldown: 3, element: 'nature', targetType: 'self' },
     ],
   },
 ]
@@ -131,6 +140,7 @@ export const ENEMY_TEMPLATES: Record<string, CreatureTemplate> = {
     role: 'offense',
     element: 'nature',
     elementalAttack: 1,
+    speed: 5,
     maxHp: 14,
     attack: 3,
     behavior: 'berserker',
@@ -154,6 +164,7 @@ export const ENEMY_TEMPLATES: Record<string, CreatureTemplate> = {
         cooldown: 3,
         element: 'nature',
         targetType: 'self',
+        persistsOnSwitch: true,
       },
     ],
   },
@@ -164,6 +175,7 @@ export const ENEMY_TEMPLATES: Record<string, CreatureTemplate> = {
     role: 'offense',
     element: 'water',
     elementalAttack: 2,
+    speed: 6,
     maxHp: 13,
     attack: 3,
     behavior: 'hexer',
@@ -179,12 +191,13 @@ export const ENEMY_TEMPLATES: Record<string, CreatureTemplate> = {
     role: 'defense',
     element: 'water',
     elementalAttack: 1,
+    speed: 3,
     maxHp: 19,
     attack: 2,
     behavior: 'guardian',
     specials: [
-      { id: 'silt-veil', name: 'Silt Veil', type: 'guard', value: 7, cooldown: 2, element: 'water', targetType: 'ally' },
-      { id: 'undertow-taunt', name: 'Undertow Taunt', type: 'taunt', value: 2, cooldown: 3, element: 'water', targetType: 'self' },
+      { id: 'silt-veil', name: 'Silt Veil', type: 'guard', value: 8, cooldown: 2, element: 'water', targetType: 'self' },
+      { id: 'cold-stare', name: 'Cold Stare', type: 'weaken', value: 4, cooldown: 3, element: 'water', targetType: 'enemy' },
     ],
   },
   hollow: {
@@ -194,11 +207,12 @@ export const ENEMY_TEMPLATES: Record<string, CreatureTemplate> = {
     role: 'support',
     element: 'nature',
     elementalAttack: 1,
+    speed: 4,
     maxHp: 15,
     attack: 2,
     behavior: 'support',
     specials: [
-      { id: 'echo-mend', name: 'Echo Mend', type: 'mend', value: 5, cooldown: 3, element: 'water', targetType: 'ally' },
+      { id: 'echo-mend', name: 'Echo Mend', type: 'mend', value: 5, cooldown: 3, element: 'water', targetType: 'self' },
       { id: 'hush-hex', name: 'Hush Hex', type: 'weaken', value: 3, cooldown: 2, element: 'nature', targetType: 'enemy' },
     ],
   },
@@ -209,6 +223,7 @@ export const ENEMY_TEMPLATES: Record<string, CreatureTemplate> = {
     role: 'offense',
     element: 'fire',
     elementalAttack: 2,
+    speed: 6,
     maxHp: 22,
     attack: 4,
     behavior: 'berserker',
@@ -233,6 +248,7 @@ export const ENEMY_TEMPLATES: Record<string, CreatureTemplate> = {
     role: 'support',
     element: 'water',
     elementalAttack: 2,
+    speed: 4,
     maxHp: 24,
     attack: 3,
     behavior: 'hexer',
@@ -248,6 +264,7 @@ export const ENEMY_TEMPLATES: Record<string, CreatureTemplate> = {
     role: 'boss',
     element: 'shadow',
     elementalAttack: 3,
+    speed: 4,
     maxHp: 32,
     attack: 4,
     behavior: 'warden',
@@ -300,11 +317,11 @@ export const LEARNABLE_ABILITIES: SpecialTemplate[] = [
   { id: 'vine-lash', name: 'Vine Lash', type: 'strike', value: 8, cooldown: 2, element: 'nature', targetType: 'enemy' },
   { id: 'scorch-mark', name: 'Scorch Mark', type: 'weaken', value: 5, cooldown: 2, element: 'fire', targetType: 'enemy' },
   { id: 'undertow-hex', name: 'Undertow Hex', type: 'poison', value: 2, cooldown: 2, element: 'water', targetType: 'enemy' },
-  { id: 'living-bark', name: 'Living Bark', type: 'guard', value: 7, cooldown: 2, element: 'nature', targetType: 'ally' },
-  { id: 'ember-ward', name: 'Ember Ward', type: 'guard', value: 6, cooldown: 2, element: 'fire', targetType: 'ally' },
-  { id: 'soothe-current', name: 'Soothe Current', type: 'mend', value: 7, cooldown: 2, element: 'water', targetType: 'ally' },
-  { id: 'kindle-chorus', name: 'Kindle Chorus', type: 'rally', value: 4, cooldown: 2, element: 'fire', targetType: 'ally' },
-  { id: 'entangle-call', name: 'Entangle Call', type: 'rally', value: 3, cooldown: 2, element: 'nature', targetType: 'ally' },
+  { id: 'living-bark', name: 'Living Bark', type: 'guard', value: 7, cooldown: 2, element: 'nature', targetType: 'self' },
+  { id: 'ember-ward', name: 'Ember Ward', type: 'guard', value: 6, cooldown: 2, element: 'fire', targetType: 'self' },
+  { id: 'soothe-current', name: 'Soothe Current', type: 'mend', value: 7, cooldown: 2, element: 'water', targetType: 'self' },
+  { id: 'kindle-chorus', name: 'Kindle Chorus', type: 'rally', value: 4, cooldown: 2, element: 'fire', targetType: 'self', persistsOnSwitch: true },
+  { id: 'entangle-call', name: 'Entangle Call', type: 'rally', value: 3, cooldown: 2, element: 'nature', targetType: 'self', persistsOnSwitch: true },
 ]
 
 export function instantiateCreature(template: CreatureTemplate): Creature {
@@ -316,7 +333,7 @@ export function instantiateCreature(template: CreatureTemplate): Creature {
     rallied: 0,
     poison: 0,
     poisonTurns: 0,
-    tauntTurns: 0,
+    lastStandUsed: false,
     specials: template.specials.map((special) => ({
       ...special,
       currentCooldown: 0,

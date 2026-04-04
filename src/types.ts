@@ -2,21 +2,23 @@ export type Role = 'offense' | 'defense' | 'support' | 'boss'
 
 export type Element = 'fire' | 'water' | 'nature' | 'shadow'
 
-export type SpecialType = 'strike' | 'guard' | 'mend' | 'weaken' | 'rally' | 'poison' | 'taunt'
+export type SpecialType = 'strike' | 'guard' | 'mend' | 'weaken' | 'rally' | 'poison'
 
-export type BehaviorArchetype = 'berserker' | 'guardian' | 'hexer' | 'support' | 'summoner' | 'warden'
+export type BehaviorArchetype = 'berserker' | 'guardian' | 'hexer' | 'support' | 'warden'
 
 export type GamePhase =
   | 'title'
+  | 'pathChoice'
   | 'teamSelect'
   | 'combat'
   | 'reward'
   | 'recruit'
   | 'rest'
+  | 'event'
   | 'victory'
   | 'defeat'
 
-export type EncounterType = 'fight' | 'elite' | 'recruit' | 'rest' | 'boss'
+export type EncounterType = 'fight' | 'elite' | 'recruit' | 'rest' | 'boss' | 'event'
 
 export type CombatTurn = 'player' | 'enemy'
 
@@ -34,6 +36,7 @@ export interface SpecialTemplate {
   targetType?: 'enemy' | 'ally' | 'self'
   targetScope?: 'single' | 'all'
   chargeTurns?: number
+  persistsOnSwitch?: boolean
 }
 
 export interface SpecialState extends SpecialTemplate {
@@ -59,6 +62,7 @@ export interface CreatureTemplate {
   role: Role
   element: Element
   elementalAttack: number
+  speed: number
   maxHp: number
   attack: number
   specials: SpecialTemplate[]
@@ -72,10 +76,10 @@ export interface Creature extends Omit<CreatureTemplate, 'specials'> {
   rallied: number
   poison: number
   poisonTurns: number
-  tauntTurns: number
   specials: SpecialState[]
   intent?: CombatIntent
   charging?: ChargeState
+  lastStandUsed: boolean
 }
 
 export interface EncounterDefinition {
@@ -84,6 +88,33 @@ export interface EncounterDefinition {
   text: string
   enemyGroupPool?: string[]
   rewardTier?: RewardTier
+  eventId?: string
+}
+
+export interface MapLayer {
+  id: string
+  options: EncounterDefinition[]
+}
+
+export interface ArtifactDefinition {
+  id: string
+  name: string
+  description: string
+  emoji: string
+}
+
+export interface EventChoice {
+  id: string
+  label: string
+  description: string
+  requiresCreature?: boolean
+}
+
+export interface EventDefinition {
+  id: string
+  title: string
+  text: string
+  choices: EventChoice[]
 }
 
 export interface RunStats {
@@ -116,42 +147,52 @@ export interface RunHistoryEntry {
 export type RewardType =
   | { type: 'hp' }
   | { type: 'atk' }
+  | { type: 'speed' }
+  | { type: 'rest' }
   | { type: 'learn'; specialId: string }
-  | { type: 'upgradeValue'; specialId: string }
-  | { type: 'upgradeCooldown'; specialId: string }
+  | { type: 'artifact'; artifactId: string }
 
 export interface GameState {
   phase: GamePhase
   roster: Creature[]
   availableCreatureIds: string[]
   selectedTeamIds: string[]
-  actedCreatureIds: string[]
+  activeCreatureId: string | null
   enemies: Creature[]
+  enemyQueueIndex: number
   encounterIndex: number
   combatLog: string[]
   encounterText: string
   recruitOffer: Creature[]
+  pathOptions: EncounterDefinition[]
+  currentEncounter: EncounterDefinition | null
+  currentEventId: string | null
   combatTurn: CombatTurn
+  freeSwitch: boolean
+  switchesUsedThisFight: number
   rewardTier: RewardTier
   learnOffers: SpecialTemplate[]
+  artifactOffers: ArtifactDefinition[]
+  artifacts: string[]
   stats: RunStats
   lastEffect: CombatEffect | null
 }
 
 export type GameAction =
   | { type: 'START_RUN' }
+  | { type: 'CHOOSE_PATH'; encounterId: string }
   | { type: 'SELECT_TEAM'; ids: string[] }
+  | { type: 'SWITCH'; creatureId: string }
   | {
       type: 'PLAYER_ACTION'
-      creatureId: string
       action: 'attack' | 'special'
       specialIndex?: number
-      targetId?: string
     }
   | { type: 'ENEMY_TURN' }
-  | { type: 'APPLY_REWARD'; creatureId: string; reward: RewardType }
+  | { type: 'APPLY_REWARD'; reward: RewardType; creatureId?: string }
   | { type: 'RECRUIT'; creatureId: string }
   | { type: 'SKIP_RECRUIT' }
   | { type: 'REST_AND_CONTINUE' }
+  | { type: 'RESOLVE_EVENT'; choiceId: string; creatureId?: string }
   | { type: 'NEXT_ENCOUNTER' }
   | { type: 'RESTART' }

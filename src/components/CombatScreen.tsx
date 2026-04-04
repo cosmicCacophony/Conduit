@@ -1,166 +1,103 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 
 import { CreatureCard } from './CreatureCard'
 import type { CombatEffect, Creature } from '../types'
 
-type PendingTarget = {
-  actorId: string
-  action: 'attack' | 'special'
-  specialIndex?: number
-  targetSide: 'ally' | 'enemy'
-}
-
 type CombatScreenProps = {
   team: Creature[]
+  activeCreature: Creature | null
   enemies: Creature[]
-  combatTurn: 'player' | 'enemy'
-  actedCreatureIds: string[]
+  enemyQueueIndex: number
+  freeSwitch: boolean
   combatLog: string[]
   lastEffect: CombatEffect | null
-  onAction: (
-    creatureId: string,
-    action: 'attack' | 'special',
-    specialIndex?: number,
-    targetId?: string,
-  ) => void
+  artifacts: string[]
+  onAction: (action: 'attack' | 'special', specialIndex?: number) => void
+  onSwitch: (creatureId: string) => void
 }
 
 export function CombatScreen({
   team,
+  activeCreature,
   enemies,
-  combatTurn,
-  actedCreatureIds,
+  enemyQueueIndex,
+  freeSwitch,
   combatLog,
   lastEffect,
+  artifacts,
   onAction,
+  onSwitch,
 }: CombatScreenProps) {
-  const livingTeam = useMemo(() => team.filter((creature) => creature.currentHp > 0), [team])
-  const livingEnemies = useMemo(() => enemies.filter((creature) => creature.currentHp > 0), [enemies])
-  const tauntingEnemies = useMemo(
-    () => livingEnemies.filter((creature) => creature.tauntTurns > 0),
-    [livingEnemies],
+  const currentEnemy = enemies[enemyQueueIndex] ?? null
+  const bench = useMemo(
+    () => team.filter((creature) => creature.currentHp > 0 && creature.id !== activeCreature?.id),
+    [activeCreature?.id, team],
   )
-  const [selectedActorId, setSelectedActorId] = useState<string | null>(livingTeam[0]?.id ?? null)
-  const [pendingTarget, setPendingTarget] = useState<PendingTarget | null>(null)
-
-  const actor =
-    livingTeam.find((creature) => creature.id === selectedActorId) ?? livingTeam[0] ?? null
-  const actorHasActed = actor ? actedCreatureIds.includes(actor.id) : false
-  const remainingActionCount = livingTeam.filter(
-    (creature) => !actedCreatureIds.includes(creature.id),
-  ).length
-  const visiblePendingTarget = combatTurn === 'player' ? pendingTarget : null
-
-  function handleAttack() {
-    if (!actor || combatTurn !== 'player' || actorHasActed) {
-      return
-    }
-
-    const validTargets = tauntingEnemies.length > 0 ? tauntingEnemies : livingEnemies
-
-    if (validTargets.length === 1) {
-      setPendingTarget(null)
-      onAction(actor.id, 'attack', undefined, validTargets[0].id)
-      return
-    }
-
-    setPendingTarget({ actorId: actor.id, action: 'attack', targetSide: 'enemy' })
-  }
-
-  function handleSpecial(specialIndex: number) {
-    if (!actor || combatTurn !== 'player' || actorHasActed) {
-      return
-    }
-
-    const special = actor.specials[specialIndex]
-    if (!special || special.currentCooldown > 0) {
-      return
-    }
-
-    if (special.targetType === 'enemy' || special.type === 'strike' || special.type === 'weaken' || special.type === 'poison') {
-      if (special.targetScope === 'all') {
-        setPendingTarget(null)
-        onAction(actor.id, 'special', specialIndex, livingEnemies[0]?.id)
-        return
-      }
-
-      if (livingEnemies.length === 1) {
-        setPendingTarget(null)
-        onAction(actor.id, 'special', specialIndex, livingEnemies[0].id)
-        return
-      }
-
-      setPendingTarget({ actorId: actor.id, action: 'special', specialIndex, targetSide: 'enemy' })
-      return
-    }
-
-    if (special.targetType === 'self') {
-      setPendingTarget(null)
-      onAction(actor.id, 'special', specialIndex, actor.id)
-      return
-    }
-
-    if (livingTeam.length === 1) {
-      setPendingTarget(null)
-      onAction(actor.id, 'special', specialIndex, livingTeam[0].id)
-      return
-    }
-
-    setPendingTarget({ actorId: actor.id, action: 'special', specialIndex, targetSide: 'ally' })
-  }
+  const upcomingEnemies = enemies.slice(enemyQueueIndex + 1).filter((creature) => creature.currentHp > 0)
 
   return (
     <section className="screen">
       <div className="combat-header">
         <div>
           <p className="eyebrow">Combat</p>
-          <h2>The island answers back</h2>
+          <h2>Hold the front</h2>
           <p className="screen-copy">
-            {combatTurn === 'player'
-              ? `Choose a creature and act. ${remainingActionCount} action${remainingActionCount === 1 ? '' : 's'} left this round.`
-              : 'The island moves. Hold the line.'}
+            {freeSwitch
+              ? 'A free switch is available. Rotate if you want, or stay in and press the advantage.'
+              : 'One creature fights at a time. Attacking means committing to the exchange.'}
           </p>
         </div>
       </div>
 
       <div className={`combat-layout ${lastEffect?.shake ? 'is-shaking' : ''}`}>
         <div className="combat-column">
-          <h3>Your pair</h3>
-          <div className="card-grid">
-            {team.map((creature) => (
-              <CreatureCard
-                key={creature.id}
-                creature={creature}
-                compact
-                selected={creature.id === actor?.id}
-                disabled={
-                  combatTurn !== 'player' ||
-                  creature.currentHp <= 0 ||
-                  actedCreatureIds.includes(creature.id)
-                }
-                effect={lastEffect}
-                showLockedSpecials
-                onClick={() => setSelectedActorId(creature.id)}
-              />
-            ))}
-          </div>
+          <h3>Active Creature</h3>
+          {activeCreature ? (
+            <CreatureCard creature={activeCreature} effect={lastEffect} showLockedSpecials />
+          ) : (
+            <div className="summary-card">
+              <strong>No active creature</strong>
+              <span>Swap in someone from the bench.</span>
+            </div>
+          )}
+
+          {bench.length > 0 ? (
+            <div className="screen-section">
+              <p className="eyebrow">Bench</p>
+              <div className="card-grid">
+                {bench.map((creature) => (
+                  <CreatureCard
+                    key={creature.id}
+                    creature={creature}
+                    compact
+                    onClick={() => onSwitch(creature.id)}
+                  />
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
 
         <div className="combat-column combat-column--enemy">
-          <h3>Enemies</h3>
-          <div className="card-grid">
-            {enemies.map((enemy) => (
-              <CreatureCard
-                key={enemy.id}
-                creature={enemy}
-                compact
-                effect={lastEffect}
-                enemyTeam={enemies}
-                playerTeam={team}
-                showIntent
-              />
-            ))}
-          </div>
+          <h3>Enemy</h3>
+          {currentEnemy ? (
+            <CreatureCard creature={currentEnemy} compact effect={lastEffect} showIntent />
+          ) : (
+            <div className="summary-card">
+              <strong>No enemy</strong>
+            </div>
+          )}
+
+          {upcomingEnemies.length > 0 ? (
+            <div className="screen-section">
+              <p className="eyebrow">Queue</p>
+              <div className="card-grid">
+                {upcomingEnemies.map((enemy) => (
+                  <CreatureCard key={enemy.id} creature={enemy} compact disabled />
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -168,15 +105,14 @@ export function CombatScreen({
         <button
           className="primary-button"
           type="button"
-          disabled={combatTurn !== 'player' || !actor || actorHasActed}
-          onClick={handleAttack}
+          disabled={!activeCreature || !currentEnemy}
+          onClick={() => onAction('attack')}
         >
-          Attack {actor ? `(${actor.attack})` : ''}
+          Attack {activeCreature ? `(${activeCreature.attack})` : ''}
         </button>
-        {actor
+        {activeCreature
           ? [0, 1].map((index) => {
-              const special = actor.specials[index]
-
+              const special = activeCreature.specials[index]
               if (!special) {
                 return (
                   <button key={`locked-${index}`} className="secondary-button" type="button" disabled>
@@ -190,8 +126,8 @@ export function CombatScreen({
                   key={special.id}
                   className="secondary-button"
                   type="button"
-                  disabled={combatTurn !== 'player' || special.currentCooldown > 0 || actorHasActed}
-                  onClick={() => handleSpecial(index)}
+                  disabled={special.currentCooldown > 0 || !currentEnemy}
+                  onClick={() => onAction('special', index)}
                 >
                   {special.name}
                 </button>
@@ -200,41 +136,14 @@ export function CombatScreen({
           : null}
       </div>
 
-      {visiblePendingTarget ? (
-        <div className="target-panel">
-          <p className="muted">
-            {visiblePendingTarget.targetSide === 'enemy'
-              ? tauntingEnemies.length > 0 && visiblePendingTarget.action === 'attack'
-                ? 'A taunt is active. Basic attacks must answer it first.'
-                : 'Choose who takes the hit.'
-              : 'Choose who receives the effect.'}
-          </p>
-          <div className="target-list">
-            {(
-              visiblePendingTarget.targetSide === 'enemy'
-                ? visiblePendingTarget.action === 'attack' && tauntingEnemies.length > 0
-                  ? tauntingEnemies
-                  : livingEnemies
-                : livingTeam
-            ).map((creature) => (
-              <button
-                key={creature.id}
-                className="target-button"
-                type="button"
-                onClick={() => {
-                  onAction(
-                    visiblePendingTarget.actorId,
-                    visiblePendingTarget.action,
-                    visiblePendingTarget.specialIndex,
-                    creature.id,
-                  )
-                  setPendingTarget(null)
-                }}
-              >
-                {creature.emoji} {creature.name}
-              </button>
+      {artifacts.length > 0 ? (
+        <div className="summary-list">
+          <h3>Artifacts</h3>
+          <ul>
+            {artifacts.map((artifactId) => (
+              <li key={artifactId}>{artifactId}</li>
             ))}
-          </div>
+          </ul>
         </div>
       ) : null}
 
