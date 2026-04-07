@@ -38,16 +38,11 @@ export function TeamSelectScreen({ creatures, onConfirm }: TeamSelectScreenProps
     .map((id) => creatures.find((c) => c.id === id))
     .filter((c): c is CreatureTemplate => c != null)
 
-  const deckElements: Element[] = []
-  for (const creature of deckPreview) {
-    for (let i = 0; i < creature.cardCount; i++) {
-      deckElements.push(creature.element)
-    }
-  }
+  const totalCards = deckPreview.reduce((sum, c) => sum + c.cardValues.length, 0)
 
-  const fireCt = deckElements.filter((e) => e === 'fire').length
-  const natureCt = deckElements.filter((e) => e === 'nature').length
-  const waterCt = deckElements.filter((e) => e === 'water').length
+  const fireCt = deckPreview.filter((c) => c.element === 'fire').reduce((sum, c) => sum + c.cardValues.length, 0)
+  const natureCt = deckPreview.filter((c) => c.element === 'nature').reduce((sum, c) => sum + c.cardValues.length, 0)
+  const waterCt = deckPreview.filter((c) => c.element === 'water').reduce((sum, c) => sum + c.cardValues.length, 0)
 
   return (
     <section className="screen">
@@ -72,7 +67,7 @@ export function TeamSelectScreen({ creatures, onConfirm }: TeamSelectScreenProps
               <span className="creature-select-card__element">
                 {ELEMENT_SYMBOL[creature.element]} {ELEMENT_LABEL[creature.element]}
               </span>
-              <span className="muted">+{creature.cardCount} cards</span>
+              <span className="muted">Cards: {creature.cardValues.join(', ')}</span>
             </button>
           )
         })}
@@ -80,7 +75,7 @@ export function TeamSelectScreen({ creatures, onConfirm }: TeamSelectScreenProps
 
       {deckPreview.length > 0 ? (
         <div className="deck-preview">
-          <p className="eyebrow">Your Deck ({deckElements.length} cards)</p>
+          <p className="eyebrow">Your Deck ({totalCards} cards)</p>
           <div className="deck-breakdown">
             {fireCt > 0 ? <span className="deck-count deck-count--fire">{ELEMENT_SYMBOL.fire} {fireCt}</span> : null}
             {natureCt > 0 ? <span className="deck-count deck-count--nature">{ELEMENT_SYMBOL.nature} {natureCt}</span> : null}

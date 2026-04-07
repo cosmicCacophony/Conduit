@@ -1,10 +1,10 @@
 import type { CreatureTemplate } from '../types'
 
 export const ALL_CREATURES: CreatureTemplate[] = [
-  { id: 'ember', name: 'Ember', emoji: '🔥', element: 'fire', cardCount: 4 },
-  { id: 'moss', name: 'Moss', emoji: '🪨', element: 'nature', cardCount: 4 },
-  { id: 'drift', name: 'Drift', emoji: '🌫️', element: 'water', cardCount: 4 },
-  { id: 'shade', name: 'Shade', emoji: '🕯️', element: 'fire', cardCount: 4 },
-  { id: 'thorn', name: 'Thorn', emoji: '🌿', element: 'nature', cardCount: 4 },
-  { id: 'ripple', name: 'Ripple', emoji: '💧', element: 'water', cardCount: 4 },
+  { id: 'ember', name: 'Ember', emoji: '🔥', element: 'fire', cardValues: [2, 3, 4, 5] },
+  { id: 'moss', name: 'Moss', emoji: '🪨', element: 'nature', cardValues: [2, 3, 4, 5] },
+  { id: 'drift', name: 'Drift', emoji: '🌫️', element: 'water', cardValues: [2, 3, 4, 5] },
+  { id: 'shade', name: 'Shade', emoji: '🕯️', element: 'fire', cardValues: [2, 3, 4, 5] },
+  { id: 'thorn', name: 'Thorn', emoji: '🌿', element: 'nature', cardValues: [2, 3, 4, 5] },
+  { id: 'ripple', name: 'Ripple', emoji: '💧', element: 'water', cardValues: [2, 3, 4, 5] },
 ]

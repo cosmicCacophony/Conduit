@@ -296,11 +296,24 @@
   color: var(--text-strong);
 }
 
+.combat-top-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
 .encounter-counter {
   color: var(--accent-soft);
   font-size: 0.85rem;
   text-transform: uppercase;
   letter-spacing: 0.15em;
+  white-space: nowrap;
+}
+
+.pile-counts {
+  font-size: 0.8rem;
+  color: var(--text-muted);
   white-space: nowrap;
 }
 
@@ -453,12 +466,20 @@
   box-shadow: 0 0 16px rgba(112, 188, 255, 0.3);
 }
 
+.element-card__value {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--text-strong);
+  line-height: 1;
+}
+
 .element-card__symbol {
-  font-size: 1.8rem;
+  font-size: 1.2rem;
+  line-height: 1;
 }
 
 .element-card__label {
-  font-size: 0.7rem;
+  font-size: 0.6rem;
   text-transform: uppercase;
   letter-spacing: 0.1em;
   color: var(--text-muted);
@@ -494,6 +515,18 @@
 .spell-match__arrow {
   color: var(--accent);
   font-size: 1.1rem;
+}
+
+.spell-computed {
+  color: #c4ffd8;
+  font-weight: 600;
+}
+
+.element-pip sup {
+  font-size: 0.55rem;
+  font-weight: 700;
+  vertical-align: super;
+  margin-left: 1px;
 }
 
 .element-pip {

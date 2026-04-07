@@ -2,11 +2,11 @@ import { useMemo, useReducer } from 'react'
 
 import { ALL_CREATURES } from '../data/creatures'
 import { ENEMY_TEMPLATES } from '../data/encounters'
-import { findSpell } from '../data/spells'
+import { describeEffect, findSpell } from '../data/spells'
 import type {
   CombatEffect,
   CreatureTemplate,
-  Element,
+  ElementCard,
   EnemyIntent,
   EnemyState,
   EnemyTemplate,
@@ -24,7 +24,9 @@ const initialStats: GameState['stats'] = { fightsWon: 0 }
 const initialState: GameState = {
   phase: 'title',
   team: [],
-  deck: [],
+  fullDeck: [],
+  drawPile: [],
+  discardPile: [],
   hand: [],
   selectedIndices: [],
   playerHp: PLAYER_MAX_HP,
@@ -60,18 +62,35 @@ function nextEffect(effect: Omit<CombatEffect, 'tick'>): CombatEffect {
   return { tick: effectTick, ...effect }
 }
 
-function buildDeck(team: CreatureTemplate[]): Element[] {
-  const cards: Element[] = []
+function buildDeck(team: CreatureTemplate[]): ElementCard[] {
+  const cards: ElementCard[] = []
   for (const creature of team) {
-    for (let i = 0; i < creature.cardCount; i++) {
-      cards.push(creature.element)
+    for (const value of creature.cardValues) {
+      cards.push({ element: creature.element, value, creatureId: creature.id })
     }
   }
   return cards
 }
 
-function drawHand(deck: Element[]): Element[] {
-  return shuffle(deck).slice(0, HAND_SIZE)
+function drawCards(
+  drawPile: ElementCard[],
+  discardPile: ElementCard[],
+  count: number,
+): { hand: ElementCard[]; drawPile: ElementCard[]; discardPile: ElementCard[] } {
+  let pile = [...drawPile]
+  let discard = [...discardPile]
+  const drawn: ElementCard[] = []
+
+  while (drawn.length < count) {
+    if (pile.length === 0) {
+      if (discard.length === 0) break
+      pile = shuffle(discard)
+      discard = []
+    }
+    drawn.push(pile.pop()!)
+  }
+
+  return { hand: drawn, drawPile: pile, discardPile: discard }
 }
 
 function pickIntent(template: EnemyTemplate | EnemyState): EnemyIntent {
@@ -139,7 +158,9 @@ function advanceEncounter(state: GameState): GameState {
   }
 
   const nextEnemy = createEnemy(state.encounters[nextIndex]!)
-  const newHand = drawHand(state.deck)
+  const reshuffled = shuffle([...state.fullDeck])
+  const { hand, drawPile, discardPile } = drawCards(reshuffled, [], HAND_SIZE)
+
   return {
     ...state,
     encounterIndex: nextIndex,
@@ -147,7 +168,9 @@ function advanceEncounter(state: GameState): GameState {
     playerHp: Math.min(state.playerMaxHp, state.playerHp + HEAL_BETWEEN_FIGHTS),
     playerBlock: 0,
     playerBurn: 0,
-    hand: newHand,
+    drawPile,
+    discardPile,
+    hand,
     selectedIndices: [],
     combatLog: pushLog(
       pushLog(state.combatLog, `${state.enemy?.name ?? 'The enemy'} falls quiet.`),
@@ -224,7 +247,9 @@ function startNewRound(state: GameState): GameState {
     }
   }
 
-  const newHand = drawHand(state.deck)
+  // Discard remaining hand, draw a new hand
+  const newDiscard = [...state.discardPile, ...state.hand]
+  const { hand: newHand, drawPile, discardPile } = drawCards(state.drawPile, newDiscard, HAND_SIZE)
 
   if (enemy?.charging != null) {
     const chargedIntent: EnemyIntent = { type: 'attack', value: enemy.charging, label: `Heavy Attack ${enemy.charging}` }
@@ -239,6 +264,8 @@ function startNewRound(state: GameState): GameState {
     playerBlock,
     playerBurn,
     enemy: enemy ?? null,
+    drawPile,
+    discardPile,
     hand: newHand,
     selectedIndices: [],
     combatLog,
@@ -265,17 +292,20 @@ function reducer(state: GameState, action: GameAction): GameState {
         return state
       }
 
-      const deck = buildDeck(team)
+      const fullDeck = buildDeck(team)
+      const shuffled = shuffle([...fullDeck])
+      const { hand, drawPile, discardPile } = drawCards(shuffled, [], HAND_SIZE)
       const encounters = [...ENEMY_TEMPLATES]
       const firstEnemy = createEnemy(encounters[0]!)
-      const hand = drawHand(deck)
       const teamNames = team.map((c) => c.name).join(', ')
 
       return {
         ...initialState,
         phase: 'combat',
         team,
-        deck,
+        fullDeck,
+        drawPile,
+        discardPile,
         hand,
         selectedIndices: [],
         playerHp: PLAYER_MAX_HP,
@@ -310,9 +340,12 @@ function reducer(state: GameState, action: GameAction): GameState {
       if (state.phase !== 'combat' || !state.enemy || state.enemy.currentHp <= 0) return state
       if (state.selectedIndices.length === 0) return state
 
-      const selectedElements = state.selectedIndices.map((i) => state.hand[i]!)
+      const selectedCards = state.selectedIndices.map((i) => state.hand[i]!)
+      const selectedElements = selectedCards.map((c) => c.element)
       const spell = findSpell(selectedElements)
       if (!spell) return state
+
+      const effect = spell.compute(selectedCards)
 
       let enemy = { ...state.enemy }
       let { playerHp, playerBlock, playerBurn } = state
@@ -320,8 +353,8 @@ function reducer(state: GameState, action: GameAction): GameState {
       let lastEffect: CombatEffect | null = null
       const parts: string[] = []
 
-      if (spell.effect.damage) {
-        const result = dealDamageToEnemy(enemy, spell.effect.damage)
+      if (effect.damage) {
+        const result = dealDamageToEnemy(enemy, effect.damage)
         enemy = result.enemy
         parts.push(`${result.dealt} damage${result.blocked > 0 ? ` (${result.blocked} blocked)` : ''}`)
         lastEffect = nextEffect({
@@ -334,23 +367,23 @@ function reducer(state: GameState, action: GameAction): GameState {
         })
       }
 
-      if (spell.effect.block) {
-        playerBlock += spell.effect.block
-        parts.push(`${spell.effect.block} block`)
+      if (effect.block) {
+        playerBlock += effect.block
+        parts.push(`${effect.block} block`)
         if (!lastEffect) {
           lastEffect = nextEffect({
             kind: 'shield',
             targetIds: ['player'],
-            label: `+${spell.effect.block}`,
-            value: spell.effect.block,
+            label: `+${effect.block}`,
+            value: effect.block,
             sound: 'guard',
           })
         }
       }
 
-      if (spell.effect.heal) {
-        const healed = Math.min(spell.effect.heal, state.playerMaxHp - playerHp)
-        playerHp = Math.min(state.playerMaxHp, playerHp + spell.effect.heal)
+      if (effect.heal) {
+        const healed = Math.min(effect.heal, state.playerMaxHp - playerHp)
+        playerHp = Math.min(state.playerMaxHp, playerHp + effect.heal)
         parts.push(`${healed} heal`)
         if (!lastEffect) {
           lastEffect = nextEffect({
@@ -363,19 +396,23 @@ function reducer(state: GameState, action: GameAction): GameState {
         }
       }
 
-      if (spell.effect.burn) {
-        enemy = { ...enemy, burn: enemy.burn + spell.effect.burn }
-        parts.push(`${spell.effect.burn} burn`)
+      if (effect.burn) {
+        enemy = { ...enemy, burn: enemy.burn + effect.burn }
+        parts.push(`${effect.burn} burn`)
       }
 
-      if (spell.effect.cleanse) {
+      if (effect.cleanse) {
         playerBurn = 0
         parts.push('cleanse')
       }
 
-      combatLog = pushLog(combatLog, `Cast ${spell.name}: ${parts.join(', ')}.`)
+      const computedDesc = describeEffect(effect)
+      combatLog = pushLog(combatLog, `Cast ${spell.name} (${computedDesc}).`)
 
+      // Consumed cards go to discard pile; remaining hand stays
       const remainingHand = state.hand.filter((_, i) => !state.selectedIndices.includes(i))
+      const usedCards = state.selectedIndices.map((i) => state.hand[i]!)
+      const newDiscard = [...state.discardPile, ...usedCards]
 
       const nextState: GameState = {
         ...state,
@@ -384,6 +421,7 @@ function reducer(state: GameState, action: GameAction): GameState {
         playerBlock,
         playerBurn,
         hand: remainingHand,
+        discardPile: newDiscard,
         selectedIndices: [],
         combatLog,
         lastEffect,
@@ -404,7 +442,6 @@ function reducer(state: GameState, action: GameAction): GameState {
       let combatLog = state.combatLog
       let lastEffect: CombatEffect | null = null
 
-      // Fade enemy block from previous defend before enemy acts again
       enemy = { ...enemy, block: 0 }
 
       const intent = enemy.currentIntent

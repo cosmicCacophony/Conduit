@@ -4,12 +4,18 @@ export type GamePhase = 'title' | 'teamSelect' | 'combat' | 'victory' | 'defeat'
 
 export type SoundCue = 'hit' | 'special' | 'heal' | 'guard' | 'victory' | 'defeat'
 
+export interface ElementCard {
+  element: Element
+  value: number
+  creatureId: string
+}
+
 export interface CreatureTemplate {
   id: string
   name: string
   emoji: string
   element: Element
-  cardCount: number
+  cardValues: number[]
 }
 
 export interface SpellEffect {
@@ -25,8 +31,8 @@ export interface Spell {
   name: string
   elements: Element[]
   tier: number
-  effect: SpellEffect
-  description: string
+  compute: (cards: ElementCard[]) => SpellEffect
+  rangeDescription: string
 }
 
 export type EnemyIntentType = 'attack' | 'defend' | 'burn' | 'charge'
@@ -82,8 +88,10 @@ export interface RunHistoryEntry {
 export interface GameState {
   phase: GamePhase
   team: CreatureTemplate[]
-  deck: Element[]
-  hand: Element[]
+  fullDeck: ElementCard[]
+  drawPile: ElementCard[]
+  discardPile: ElementCard[]
+  hand: ElementCard[]
   selectedIndices: number[]
   playerHp: number
   playerMaxHp: number

@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 
-import { findSpell, getAllSpells } from '../data/spells'
-import type { CombatEffect, Element, EnemyState, GameState, Spell } from '../types'
+import { describeEffect, findSpell, getAllSpells } from '../data/spells'
+import type { CombatEffect, Element, ElementCard, EnemyState, GameState, Spell } from '../types'
 
 type CombatScreenProps = {
   state: GameState
@@ -80,7 +80,7 @@ function SpellBookPanel() {
                     ))}
                   </span>
                   <strong>{spell.name}</strong>
-                  <span className="muted">{spell.description}</span>
+                  <span className="muted">{spell.rangeDescription}</span>
                 </div>
               ))}
           </div>
@@ -91,16 +91,26 @@ function SpellBookPanel() {
 }
 
 export function CombatScreen({ state, onToggleCard, onCast, onEndTurn }: CombatScreenProps) {
-  const { hand, selectedIndices, enemy, playerHp, playerMaxHp, playerBlock, playerBurn, combatLog, lastEffect, encounterIndex, encounters } = state
+  const { hand, selectedIndices, enemy, playerHp, playerMaxHp, playerBlock, playerBurn, combatLog, lastEffect, encounterIndex, encounters, drawPile, discardPile } = state
 
-  const selectedElements = useMemo(
+  const selectedCards: ElementCard[] = useMemo(
     () => selectedIndices.map((i) => hand[i]!),
     [selectedIndices, hand],
+  )
+
+  const selectedElements = useMemo(
+    () => selectedCards.map((c) => c.element),
+    [selectedCards],
   )
 
   const matchedSpell: Spell | null = useMemo(
     () => findSpell(selectedElements),
     [selectedElements],
+  )
+
+  const computedEffect = useMemo(
+    () => matchedSpell?.compute(selectedCards) ?? null,
+    [matchedSpell, selectedCards],
   )
 
   const playerHpPercent = playerMaxHp === 0 ? 0 : (playerHp / playerMaxHp) * 100
@@ -126,7 +136,10 @@ export function CombatScreen({ state, onToggleCard, onCast, onEndTurn }: CombatS
             <span style={{ width: `${Math.max(0, playerHpPercent)}%` }} />
           </div>
         </div>
-        <span className="encounter-counter">Fight {encounterIndex + 1}/{encounters.length}</span>
+        <div className="combat-top-right">
+          <span className="encounter-counter">Fight {encounterIndex + 1}/{encounters.length}</span>
+          <span className="pile-counts">Draw: {drawPile.length} | Discard: {discardPile.length}</span>
+        </div>
       </div>
 
       <div className={`combat-arena ${lastEffect?.shake ? 'is-shaking' : ''}`}>
@@ -136,17 +149,18 @@ export function CombatScreen({ state, onToggleCard, onCast, onEndTurn }: CombatS
       <div className="hand-section">
         <p className="eyebrow">Your Hand</p>
         <div className="hand-cards">
-          {hand.map((element, index) => {
+          {hand.map((card, index) => {
             const isSelected = selectedIndices.includes(index)
             return (
               <button
                 key={`card-${index}`}
                 type="button"
-                className={`element-card element-card--${element} ${isSelected ? 'is-selected' : ''}`}
+                className={`element-card element-card--${card.element} ${isSelected ? 'is-selected' : ''}`}
                 onClick={() => onToggleCard(index)}
               >
-                <span className="element-card__symbol">{ELEMENT_SYMBOL[element]}</span>
-                <span className="element-card__label">{ELEMENT_LABEL[element]}</span>
+                <span className="element-card__value">{card.value}</span>
+                <span className="element-card__symbol">{ELEMENT_SYMBOL[card.element]}</span>
+                <span className="element-card__label">{ELEMENT_LABEL[card.element]}</span>
               </button>
             )
           })}
@@ -156,25 +170,25 @@ export function CombatScreen({ state, onToggleCard, onCast, onEndTurn }: CombatS
 
       <div className="spell-preview">
         {selectedIndices.length > 0 ? (
-          matchedSpell ? (
+          matchedSpell && computedEffect ? (
             <div className="spell-match">
               <span className="spell-match__elements">
-                {selectedElements.map((e, i) => (
-                  <span key={`sel-${i}`} className={`element-pip element-pip--${e}`}>
-                    {ELEMENT_SYMBOL[e]}
+                {selectedCards.map((c, i) => (
+                  <span key={`sel-${i}`} className={`element-pip element-pip--${c.element}`}>
+                    {ELEMENT_SYMBOL[c.element]}<sup>{c.value}</sup>
                   </span>
                 ))}
               </span>
               <span className="spell-match__arrow">&rarr;</span>
               <strong>{matchedSpell.name}</strong>
-              <span className="muted">{matchedSpell.description}</span>
+              <span className="spell-computed">{describeEffect(computedEffect)}</span>
             </div>
           ) : (
             <div className="spell-match spell-match--invalid">
               <span className="spell-match__elements">
-                {selectedElements.map((e, i) => (
-                  <span key={`sel-${i}`} className={`element-pip element-pip--${e}`}>
-                    {ELEMENT_SYMBOL[e]}
+                {selectedCards.map((c, i) => (
+                  <span key={`sel-${i}`} className={`element-pip element-pip--${c.element}`}>
+                    {ELEMENT_SYMBOL[c.element]}<sup>{c.value}</sup>
                   </span>
                 ))}
               </span>
