@@ -275,14 +275,6 @@
   position: relative;
 }
 
-.player-status {
-  position: relative;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
 .player-hp-row {
   display: flex;
   align-items: center;
@@ -341,6 +333,16 @@
   color: #ffc83c;
 }
 
+.status-pill--thorns {
+  background: rgba(134, 214, 154, 0.18);
+  color: #86d69a;
+}
+
+.status-pill--regen {
+  background: rgba(134, 214, 154, 0.18);
+  color: #a0e8b8;
+}
+
 /* Combat Arena */
 
 .combat-arena {
@@ -397,6 +399,8 @@
 }
 
 .intent-label--attack { color: #ff816d; }
+.intent-label--block { color: #70bcff; }
+.intent-label--heal { color: #a0e8b8; }
 .intent-label--defend { color: #70bcff; }
 .intent-label--burn { color: #ffa04d; }
 .intent-label--charge { color: #ffc83c; }
@@ -416,6 +420,7 @@
 }
 
 .element-card {
+  position: relative;
   width: 80px;
   height: 100px;
   border: 2px solid var(--border);
@@ -573,45 +578,229 @@
   color: var(--text-muted);
 }
 
-/* Spell Book */
+/* Mana Display */
 
-.spellbook-panel {
-  border: 1px solid var(--border);
-  background: var(--card);
-  padding: 16px;
-}
-
-.spellbook-panel summary {
-  cursor: pointer;
-  font-weight: 600;
-  color: var(--text-strong);
-  user-select: none;
-}
-
-.spellbook-tier {
-  margin-top: 14px;
+.mana-display {
   display: flex;
-  flex-direction: column;
+  align-items: center;
   gap: 8px;
 }
 
-.spellbook-entries {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+.mana-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--accent-soft);
+  font-weight: 600;
 }
 
-.spellbook-entry {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 4px 0;
-  font-size: 0.88rem;
-}
-
-.spellbook-elements {
+.mana-dots {
   display: flex;
   gap: 3px;
+}
+
+.mana-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  transition: background 200ms ease;
+}
+
+.mana-dot--filled {
+  background: var(--accent);
+  box-shadow: 0 0 4px rgba(184, 166, 255, 0.4);
+}
+
+.mana-dot--empty {
+  background: rgba(164, 145, 205, 0.15);
+}
+
+.mana-count {
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: var(--accent);
+  min-width: 16px;
+}
+
+.bank-badge,
+.surge-badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 2px;
+}
+
+.bank-badge {
+  background: rgba(184, 166, 255, 0.15);
+  color: var(--accent);
+}
+
+.surge-badge {
+  background: rgba(255, 200, 60, 0.18);
+  color: #ffc83c;
+}
+
+/* Enemy Cards Info */
+
+.enemy-cards-info {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.enemy-played,
+.enemy-remaining {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.enemy-card-pips {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.enemy-card-pip {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 2px;
+}
+
+.enemy-card-pip--fire {
+  background: rgba(255, 129, 109, 0.2);
+  color: #ff816d;
+}
+
+.enemy-card-pip--nature {
+  background: rgba(134, 214, 154, 0.2);
+  color: #86d69a;
+}
+
+.enemy-card-pip--water {
+  background: rgba(112, 188, 255, 0.2);
+  color: #70bcff;
+}
+
+.enemy-remaining-summary {
+  display: flex;
+  gap: 8px;
+}
+
+.element-count {
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.element-count--fire { color: #ff816d; }
+.element-count--nature { color: #86d69a; }
+.element-count--water { color: #70bcff; }
+
+/* Spell Cost */
+
+.spell-cost {
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  background: rgba(184, 166, 255, 0.15);
+  color: var(--accent);
+  border-radius: 2px;
+}
+
+.spell-cost--over {
+  background: rgba(255, 129, 109, 0.18);
+  color: #ff816d;
+}
+
+.spell-match--no-mana {
+  opacity: 0.6;
+}
+
+/* Card Order Badge */
+
+.card-order {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: #111015;
+  border-radius: 50%;
+}
+
+/* Relic Selection */
+
+.relic-select-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.relic-select-card {
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text-strong);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+  font: inherit;
+}
+
+.relic-select-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--accent);
+  box-shadow: 0 0 20px rgba(184, 166, 255, 0.15);
+}
+
+.relic-select-card__emoji {
+  font-size: 2.4rem;
+}
+
+.relic-select-card__desc {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+/* Relic Indicator (combat) */
+
+.relic-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: var(--accent-soft);
+  margin-top: 4px;
+}
+
+.relic-indicator__emoji {
+  font-size: 1rem;
+}
+
+.relic-indicator__name {
+  font-weight: 600;
+}
+
+/* Player Status (combat bottom) */
+
+.player-status {
+  border: 1px solid var(--border);
+  background: var(--card);
+  padding: 16px;
 }
 
 /* Responsive */

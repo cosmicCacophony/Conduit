@@ -1,23 +1,28 @@
 import { useMemo, useReducer } from 'react'
 
 import { ALL_CREATURES } from '../data/creatures'
+import { describeComboResult, getManaCost, resolveCards } from '../data/combos'
 import { ENEMY_TEMPLATES } from '../data/encounters'
-import { describeEffect, findSpell } from '../data/spells'
 import type {
   CombatEffect,
   CreatureTemplate,
   ElementCard,
-  EnemyIntent,
   EnemyState,
   EnemyTemplate,
   GameAction,
   GameState,
+  RelicId,
 } from '../types'
 
 const PLAYER_MAX_HP = 30
 const HAND_SIZE = 5
 const HEAL_BETWEEN_FIGHTS = 5
 const MAX_LOG_LINES = 12
+
+const BASE_MANA = 6
+const BANK_CAP = 4
+const SURGE_BONUS = 2
+const ENEMY_ACTION_MULTIPLIER = 2
 
 const initialStats: GameState['stats'] = { fightsWon: 0 }
 
@@ -33,9 +38,16 @@ const initialState: GameState = {
   playerMaxHp: PLAYER_MAX_HP,
   playerBlock: 0,
   playerBurn: 0,
+  playerThorns: 0,
+  playerRegen: 0,
+  mana: 0,
+  bankedMana: 0,
+  hasSurge: false,
+  cardsPlayedThisTurn: 0,
   encounters: [],
   encounterIndex: 0,
   enemy: null,
+  selectedRelic: null,
   combatLog: [],
   lastEffect: null,
   stats: initialStats,
@@ -93,12 +105,30 @@ function drawCards(
   return { hand: drawn, drawPile: pile, discardPile: discard }
 }
 
-function pickIntent(template: EnemyTemplate | EnemyState): EnemyIntent {
-  const pool = template.intents
-  return pool[Math.floor(Math.random() * pool.length)]!
+function drawEnemyCard(enemy: EnemyState): { card: ElementCard; enemy: EnemyState } {
+  let drawPile = [...enemy.drawPile]
+  let discardPile = [...enemy.discardPile]
+
+  if (drawPile.length === 0) {
+    if (discardPile.length === 0) {
+      return { card: { element: 'fire', value: 1, creatureId: '' }, enemy }
+    }
+    drawPile = shuffle(discardPile)
+    discardPile = []
+  }
+
+  const card = drawPile.pop()!
+  return {
+    card,
+    enemy: { ...enemy, drawPile, discardPile },
+  }
 }
 
 function createEnemy(template: EnemyTemplate): EnemyState {
+  const shuffledDeck = shuffle([...template.deck])
+  const drawPile = [...shuffledDeck]
+  const firstCard = drawPile.pop()!
+
   return {
     id: template.id,
     name: template.name,
@@ -107,13 +137,17 @@ function createEnemy(template: EnemyTemplate): EnemyState {
     currentHp: template.maxHp,
     block: 0,
     burn: 0,
-    currentIntent: pickIntent(template),
-    intents: template.intents,
-    charging: null,
+    regen: 0,
+    drawPile,
+    discardPile: [],
+    currentCard: firstCard,
   }
 }
 
-function dealDamageToEnemy(enemy: EnemyState, rawDamage: number): { enemy: EnemyState; dealt: number; blocked: number } {
+function dealDamageToEnemy(
+  enemy: EnemyState,
+  rawDamage: number,
+): { enemy: EnemyState; dealt: number; blocked: number } {
   const blocked = Math.min(enemy.block, rawDamage)
   const dealt = rawDamage - blocked
   return {
@@ -127,7 +161,10 @@ function dealDamageToEnemy(enemy: EnemyState, rawDamage: number): { enemy: Enemy
   }
 }
 
-function dealDamageToPlayer(state: GameState, rawDamage: number): { playerHp: number; playerBlock: number; dealt: number; blocked: number } {
+function dealDamageToPlayer(
+  state: GameState,
+  rawDamage: number,
+): { playerHp: number; playerBlock: number; dealt: number; blocked: number } {
   const blocked = Math.min(state.playerBlock, rawDamage)
   const dealt = rawDamage - blocked
   return {
@@ -145,7 +182,7 @@ function advanceEncounter(state: GameState): GameState {
     return {
       ...state,
       phase: 'victory',
-      combatLog: pushLog(state.combatLog, 'The island exhales. You have crossed.'),
+      combatLog: pushLog(state.combatLog, 'All enemies defeated. Victory!'),
       stats: { ...state.stats, fightsWon: state.stats.fightsWon + 1 },
       lastEffect: nextEffect({
         kind: 'victory',
@@ -168,12 +205,18 @@ function advanceEncounter(state: GameState): GameState {
     playerHp: Math.min(state.playerMaxHp, state.playerHp + HEAL_BETWEEN_FIGHTS),
     playerBlock: 0,
     playerBurn: 0,
+    playerThorns: 0,
+    playerRegen: 0,
+    mana: BASE_MANA,
+    bankedMana: 0,
+    hasSurge: false,
+    cardsPlayedThisTurn: 0,
     drawPile,
     discardPile,
     hand,
     selectedIndices: [],
     combatLog: pushLog(
-      pushLog(state.combatLog, `${state.enemy?.name ?? 'The enemy'} falls quiet.`),
+      pushLog(state.combatLog, `${state.enemy?.name ?? 'The enemy'} falls.`),
       `${nextEnemy.name} appears. +${HEAL_BETWEEN_FIGHTS} HP recovered.`,
     ),
     stats: { ...state.stats, fightsWon: state.stats.fightsWon + 1 },
@@ -187,11 +230,35 @@ function advanceEncounter(state: GameState): GameState {
 }
 
 function startNewRound(state: GameState): GameState {
-  let { playerHp, playerBurn, enemy, combatLog } = state
+  let { playerHp, playerBurn, playerRegen, enemy, combatLog } = state
   let lastEffect: CombatEffect | null = state.lastEffect
 
-  const playerBlock = 0
+  let playerBlock = 0
+  if (state.selectedRelic === 'stone-skin') {
+    playerBlock = state.playerBlock
+  }
+  const playerThorns = 0
 
+  // Wellspring relic: heal 2 at round start
+  if (state.selectedRelic === 'wellspring') {
+    const wellHeal = Math.min(2, state.playerMaxHp - playerHp)
+    if (wellHeal > 0) {
+      playerHp = Math.min(state.playerMaxHp, playerHp + 2)
+      combatLog = pushLog(combatLog, `Wellspring restores ${wellHeal} HP.`)
+    }
+  }
+
+  // Player regen tick
+  if (playerRegen > 0) {
+    const regenAmt = Math.min(playerRegen, state.playerMaxHp - playerHp)
+    playerHp = Math.min(state.playerMaxHp, playerHp + playerRegen)
+    if (regenAmt > 0) {
+      combatLog = pushLog(combatLog, `You regenerate ${regenAmt} HP.`)
+    }
+    playerRegen = Math.max(0, playerRegen - 1)
+  }
+
+  // Player burn tick
   if (playerBurn > 0) {
     playerHp = Math.max(0, playerHp - playerBurn)
     combatLog = pushLog(combatLog, `You take ${playerBurn} burn damage.`)
@@ -212,19 +279,42 @@ function startNewRound(state: GameState): GameState {
       playerHp: 0,
       playerBlock: 0,
       playerBurn: playerBurn,
-      combatLog: pushLog(combatLog, 'The flames consume you. The run ends.'),
+      playerRegen: 0,
+      playerThorns: 0,
+      combatLog: pushLog(combatLog, 'You have been defeated.'),
       lastEffect: nextEffect({ kind: 'defeat', targetIds: [], label: 'Defeated', sound: 'defeat' }),
     }
   }
 
+  // Enemy block resets
+  if (enemy) {
+    enemy = { ...enemy, block: 0 }
+  }
+
+  // Enemy regen tick
+  if (enemy && enemy.regen > 0) {
+    const regenAmt = Math.min(enemy.regen, enemy.maxHp - enemy.currentHp)
+    enemy = {
+      ...enemy,
+      currentHp: Math.min(enemy.maxHp, enemy.currentHp + enemy.regen),
+      regen: Math.max(0, enemy.regen - 1),
+    }
+    if (regenAmt > 0) {
+      combatLog = pushLog(combatLog, `${enemy.name} regenerates ${regenAmt} HP.`)
+    }
+  }
+
+  // Enemy burn tick
   if (enemy && enemy.burn > 0) {
     const burnDmg = enemy.burn
     const nextEnemyHp = Math.max(0, enemy.currentHp - burnDmg)
     combatLog = pushLog(combatLog, `${enemy.name} takes ${burnDmg} burn damage.`)
+
+    const burnDecay = state.selectedRelic === 'ember-heart' ? 0 : 1
     enemy = {
       ...enemy,
       currentHp: nextEnemyHp,
-      burn: Math.max(0, enemy.burn - 1),
+      burn: Math.max(0, enemy.burn - burnDecay),
     }
     lastEffect = nextEffect({
       kind: 'damage',
@@ -240,6 +330,8 @@ function startNewRound(state: GameState): GameState {
         playerHp,
         playerBlock,
         playerBurn,
+        playerThorns,
+        playerRegen,
         enemy,
         combatLog,
         lastEffect,
@@ -251,18 +343,27 @@ function startNewRound(state: GameState): GameState {
   const newDiscard = [...state.discardPile, ...state.hand]
   const { hand: newHand, drawPile, discardPile } = drawCards(state.drawPile, newDiscard, HAND_SIZE)
 
-  if (enemy?.charging != null) {
-    const chargedIntent: EnemyIntent = { type: 'attack', value: enemy.charging, label: `Heavy Attack ${enemy.charging}` }
-    enemy = { ...enemy, charging: null, currentIntent: chargedIntent }
-  } else if (enemy) {
-    enemy = { ...enemy, currentIntent: pickIntent(enemy) }
+  // Enemy draws next card
+  if (enemy) {
+    const drawn = drawEnemyCard(enemy)
+    enemy = { ...drawn.enemy, currentCard: drawn.card }
   }
+
+  // Calculate mana for the new round
+  const surgeMana = state.hasSurge ? SURGE_BONUS : 0
+  const newMana = BASE_MANA + Math.min(state.bankedMana, BANK_CAP) + surgeMana
 
   return {
     ...state,
     playerHp,
     playerBlock,
     playerBurn,
+    playerThorns,
+    playerRegen,
+    mana: newMana,
+    bankedMana: 0,
+    hasSurge: false,
+    cardsPlayedThisTurn: 0,
     enemy: enemy ?? null,
     drawPile,
     discardPile,
@@ -292,6 +393,17 @@ function reducer(state: GameState, action: GameAction): GameState {
         return state
       }
 
+      return {
+        ...state,
+        phase: 'teamSelect',
+        team,
+      }
+    }
+
+    case 'SELECT_RELIC': {
+      const { team } = state
+      if (team.length < 3) return state
+
       const fullDeck = buildDeck(team)
       const shuffled = shuffle([...fullDeck])
       const { hand, drawPile, discardPile } = drawCards(shuffled, [], HAND_SIZE)
@@ -312,12 +424,19 @@ function reducer(state: GameState, action: GameAction): GameState {
         playerMaxHp: PLAYER_MAX_HP,
         playerBlock: 0,
         playerBurn: 0,
+        playerThorns: 0,
+        playerRegen: 0,
+        mana: BASE_MANA,
+        bankedMana: 0,
+        hasSurge: false,
+        cardsPlayedThisTurn: 0,
         encounters,
         encounterIndex: 0,
         enemy: firstEnemy,
+        selectedRelic: action.relicId,
         combatLog: [
           `Your team: ${teamNames}.`,
-          `${firstEnemy.name} emerges from the hush.`,
+          `${firstEnemy.name} emerges.`,
         ],
         lastEffect: null,
         stats: initialStats,
@@ -329,61 +448,77 @@ function reducer(state: GameState, action: GameAction): GameState {
       const idx = action.index
       if (idx < 0 || idx >= state.hand.length) return state
 
-      const selected = state.selectedIndices.includes(idx)
-        ? state.selectedIndices.filter((i) => i !== idx)
-        : [...state.selectedIndices, idx]
+      const alreadySelected = state.selectedIndices.includes(idx)
+      let selected: number[]
+
+      if (alreadySelected) {
+        selected = state.selectedIndices.filter((i) => i !== idx)
+      } else {
+        if (state.selectedIndices.length >= 2) {
+          selected = [state.selectedIndices[1]!, idx]
+        } else {
+          selected = [...state.selectedIndices, idx]
+        }
+      }
 
       return { ...state, selectedIndices: selected }
     }
 
-    case 'CAST_SPELL': {
+    case 'PLAY_CARDS': {
       if (state.phase !== 'combat' || !state.enemy || state.enemy.currentHp <= 0) return state
-      if (state.selectedIndices.length === 0) return state
+      if (state.selectedIndices.length === 0 || state.selectedIndices.length > 2) return state
 
       const selectedCards = state.selectedIndices.map((i) => state.hand[i]!)
-      const selectedElements = selectedCards.map((c) => c.element)
-      const spell = findSpell(selectedElements)
-      if (!spell) return state
+      const cost = getManaCost(selectedCards)
+      if (cost > state.mana) return state
 
-      const effect = spell.compute(selectedCards)
+      const result = resolveCards(selectedCards)
+      if (!result) return state
 
       let enemy = { ...state.enemy }
-      let { playerHp, playerBlock, playerBurn } = state
+      let { playerHp, playerBlock, playerBurn, playerThorns, playerRegen } = state
       let combatLog = state.combatLog
       let lastEffect: CombatEffect | null = null
       const parts: string[] = []
 
-      if (effect.damage) {
-        const result = dealDamageToEnemy(enemy, effect.damage)
-        enemy = result.enemy
-        parts.push(`${result.dealt} damage${result.blocked > 0 ? ` (${result.blocked} blocked)` : ''}`)
+      // Apply damage
+      if (result.damage) {
+        let dmg = result.damage
+        if (state.selectedRelic === 'glass-cannon') {
+          dmg = Math.ceil(dmg * 1.5)
+        }
+        const dmgResult = dealDamageToEnemy(enemy, dmg)
+        enemy = dmgResult.enemy
+        parts.push(`${dmgResult.dealt} damage${dmgResult.blocked > 0 ? ` (${dmgResult.blocked} blocked)` : ''}`)
         lastEffect = nextEffect({
           kind: 'damage',
           targetIds: [enemy.id],
-          label: `-${result.dealt}`,
-          value: result.dealt,
-          sound: spell.tier >= 2 ? 'special' : 'hit',
-          shake: result.dealt >= 10,
+          label: `-${dmgResult.dealt}`,
+          value: dmgResult.dealt,
+          sound: selectedCards.length >= 2 ? 'special' : 'hit',
+          shake: dmgResult.dealt >= 8,
         })
       }
 
-      if (effect.block) {
-        playerBlock += effect.block
-        parts.push(`${effect.block} block`)
+      // Apply block
+      if (result.block) {
+        playerBlock += result.block
+        parts.push(`${result.block} block`)
         if (!lastEffect) {
           lastEffect = nextEffect({
             kind: 'shield',
             targetIds: ['player'],
-            label: `+${effect.block}`,
-            value: effect.block,
+            label: `+${result.block}`,
+            value: result.block,
             sound: 'guard',
           })
         }
       }
 
-      if (effect.heal) {
-        const healed = Math.min(effect.heal, state.playerMaxHp - playerHp)
-        playerHp = Math.min(state.playerMaxHp, playerHp + effect.heal)
+      // Apply heal
+      if (result.heal) {
+        const healed = Math.min(result.heal, state.playerMaxHp - playerHp)
+        playerHp = Math.min(state.playerMaxHp, playerHp + result.heal)
         parts.push(`${healed} heal`)
         if (!lastEffect) {
           lastEffect = nextEffect({
@@ -396,20 +531,34 @@ function reducer(state: GameState, action: GameAction): GameState {
         }
       }
 
-      if (effect.burn) {
-        enemy = { ...enemy, burn: enemy.burn + effect.burn }
-        parts.push(`${effect.burn} burn`)
+      // Apply burn to enemy
+      if (result.burn) {
+        enemy = { ...enemy, burn: enemy.burn + result.burn }
+        parts.push(`${result.burn} burn`)
       }
 
-      if (effect.cleanse) {
-        playerBurn = 0
-        parts.push('cleanse')
+      // Apply thorns to player
+      if (result.thorns) {
+        playerThorns += result.thorns
+        parts.push(`${result.thorns} thorns`)
       }
 
-      const computedDesc = describeEffect(effect)
-      combatLog = pushLog(combatLog, `Cast ${spell.name} (${computedDesc}).`)
+      // Apply regen to player
+      if (result.regen) {
+        playerRegen += result.regen
+        parts.push(`${result.regen} regen`)
+      }
 
-      // Consumed cards go to discard pile; remaining hand stays
+      // Apply cleanse
+      if (result.cleanse) {
+        const cleansed = Math.min(result.cleanse, playerBurn)
+        playerBurn = Math.max(0, playerBurn - result.cleanse)
+        if (cleansed > 0) parts.push(`cleansed ${cleansed} burn`)
+      }
+
+      const desc = describeComboResult(result)
+      combatLog = pushLog(combatLog, `Played: ${desc}. (${cost} mana)`)
+
       const remainingHand = state.hand.filter((_, i) => !state.selectedIndices.includes(i))
       const usedCards = state.selectedIndices.map((i) => state.hand[i]!)
       const newDiscard = [...state.discardPile, ...usedCards]
@@ -420,6 +569,10 @@ function reducer(state: GameState, action: GameAction): GameState {
         playerHp,
         playerBlock,
         playerBurn,
+        playerThorns,
+        playerRegen,
+        mana: state.mana - cost,
+        cardsPlayedThisTurn: state.cardsPlayedThisTurn + 1,
         hand: remainingHand,
         discardPile: newDiscard,
         selectedIndices: [],
@@ -438,60 +591,95 @@ function reducer(state: GameState, action: GameAction): GameState {
       if (state.phase !== 'combat' || !state.enemy) return state
 
       let enemy = { ...state.enemy }
-      let { playerHp, playerBlock, playerBurn } = state
+      let { playerHp, playerBlock } = state
+      const { playerBurn } = state
       let combatLog = state.combatLog
       let lastEffect: CombatEffect | null = null
 
-      enemy = { ...enemy, block: 0 }
+      // Resolve enemy's current card
+      const card = enemy.currentCard
+      if (card) {
+        const actionValue = card.value * ENEMY_ACTION_MULTIPLIER
 
-      const intent = enemy.currentIntent
+        if (card.element === 'fire') {
+          let dmg = actionValue
+          if (state.selectedRelic === 'glass-cannon') {
+            dmg = Math.ceil(dmg * 1.5)
+          }
+          const result = dealDamageToPlayer(
+            { ...state, playerHp, playerBlock },
+            dmg,
+          )
+          playerHp = result.playerHp
+          playerBlock = result.playerBlock
 
-      if (intent.type === 'attack') {
-        const result = dealDamageToPlayer(
-          { ...state, playerHp, playerBlock },
-          intent.value,
-        )
-        playerHp = result.playerHp
-        playerBlock = result.playerBlock
-        combatLog = pushLog(
-          combatLog,
-          `${enemy.name} attacks for ${intent.value}${result.blocked > 0 ? ` (${result.blocked} blocked)` : ''} — you take ${result.dealt} damage.`,
-        )
+          // Thorns: reflect damage back to enemy
+          if (state.playerThorns > 0) {
+            const thornsDmg = state.playerThorns
+            enemy = {
+              ...enemy,
+              currentHp: Math.max(0, enemy.currentHp - thornsDmg),
+            }
+            combatLog = pushLog(combatLog, `Thorns deal ${thornsDmg} damage back.`)
+          }
+
+          combatLog = pushLog(
+            combatLog,
+            `${enemy.name} attacks for ${actionValue}${result.blocked > 0 ? ` (${result.blocked} blocked)` : ''} — ${result.dealt} damage.`,
+          )
+          lastEffect = nextEffect({
+            kind: 'damage',
+            targetIds: ['player'],
+            label: `-${result.dealt}`,
+            value: result.dealt,
+            sound: 'hit',
+            shake: result.dealt >= 8,
+          })
+        } else if (card.element === 'nature') {
+          enemy = { ...enemy, block: enemy.block + actionValue }
+          combatLog = pushLog(combatLog, `${enemy.name} braces, gaining ${actionValue} block.`)
+          lastEffect = nextEffect({
+            kind: 'shield',
+            targetIds: [enemy.id],
+            label: `+${actionValue}`,
+            value: actionValue,
+            sound: 'guard',
+          })
+        } else if (card.element === 'water') {
+          const healed = Math.min(actionValue, enemy.maxHp - enemy.currentHp)
+          enemy = {
+            ...enemy,
+            currentHp: Math.min(enemy.maxHp, enemy.currentHp + actionValue),
+          }
+          combatLog = pushLog(combatLog, `${enemy.name} heals for ${healed}.`)
+          lastEffect = nextEffect({
+            kind: 'heal',
+            targetIds: [enemy.id],
+            label: `+${healed}`,
+            value: healed,
+            sound: 'heal',
+          })
+        }
+
+        // Move card to enemy discard
+        enemy = {
+          ...enemy,
+          discardPile: [...enemy.discardPile, card],
+          currentCard: null,
+        }
+      }
+
+      // Tide Turner: deal banked mana as damage on pass
+      if (state.selectedRelic === 'tide-turner' && state.cardsPlayedThisTurn === 0 && state.mana > 0) {
+        const tideDmg = state.mana
+        const tideResult = dealDamageToEnemy(enemy, tideDmg)
+        enemy = tideResult.enemy
+        combatLog = pushLog(combatLog, `Tide Turner deals ${tideResult.dealt} damage.`)
         lastEffect = nextEffect({
           kind: 'damage',
-          targetIds: ['player'],
-          label: `-${result.dealt}`,
-          value: result.dealt,
-          sound: 'hit',
-          shake: result.dealt >= 10,
-        })
-      } else if (intent.type === 'defend') {
-        enemy = { ...enemy, block: intent.value }
-        combatLog = pushLog(combatLog, `${enemy.name} braces, gaining ${intent.value} block.`)
-        lastEffect = nextEffect({
-          kind: 'shield',
           targetIds: [enemy.id],
-          label: `+${intent.value}`,
-          value: intent.value,
-          sound: 'guard',
-        })
-      } else if (intent.type === 'burn') {
-        playerBurn += intent.value
-        combatLog = pushLog(combatLog, `${enemy.name} inflicts ${intent.value} burn on you.`)
-        lastEffect = nextEffect({
-          kind: 'buff',
-          targetIds: ['player'],
-          label: `Burn +${intent.value}`,
-          value: intent.value,
-          sound: 'special',
-        })
-      } else if (intent.type === 'charge') {
-        enemy = { ...enemy, charging: intent.value }
-        combatLog = pushLog(combatLog, `${enemy.name} begins charging a devastating attack...`)
-        lastEffect = nextEffect({
-          kind: 'buff',
-          targetIds: [enemy.id],
-          label: 'Charging',
+          label: `-${tideResult.dealt}`,
+          value: tideResult.dealt,
           sound: 'special',
         })
       }
@@ -503,11 +691,29 @@ function reducer(state: GameState, action: GameAction): GameState {
           playerHp: 0,
           playerBlock: 0,
           playerBurn: playerBurn,
+          playerThorns: 0,
+          playerRegen: 0,
           enemy,
-          combatLog: pushLog(combatLog, 'The island keeps you. The run ends.'),
+          combatLog: pushLog(combatLog, 'You have been defeated.'),
           lastEffect: nextEffect({ kind: 'defeat', targetIds: [], label: 'Defeated', sound: 'defeat' }),
         }
       }
+
+      if (enemy.currentHp <= 0) {
+        return advanceEncounter({
+          ...state,
+          playerHp,
+          playerBlock,
+          playerBurn,
+          enemy,
+          combatLog,
+          lastEffect,
+        })
+      }
+
+      // Bank remaining mana
+      const newBankedMana = Math.min(state.mana, BANK_CAP)
+      const hasSurge = state.cardsPlayedThisTurn === 0
 
       return startNewRound({
         ...state,
@@ -517,6 +723,8 @@ function reducer(state: GameState, action: GameAction): GameState {
         enemy,
         combatLog,
         lastEffect,
+        bankedMana: newBankedMana,
+        hasSurge,
       })
     }
 
@@ -538,5 +746,51 @@ export function useRunState() {
     state,
     dispatch,
     availableCreatures,
+  }
+}
+
+export function getEnemyRemainingByElement(enemy: EnemyState): {
+  fire: number[]; nature: number[]; water: number[]
+} {
+  const remaining = [...enemy.drawPile]
+  if (enemy.currentCard) remaining.push(enemy.currentCard)
+
+  return {
+    fire: remaining.filter((c) => c.element === 'fire').map((c) => c.value).sort((a, b) => a - b),
+    nature: remaining.filter((c) => c.element === 'nature').map((c) => c.value).sort((a, b) => a - b),
+    water: remaining.filter((c) => c.element === 'water').map((c) => c.value).sort((a, b) => a - b),
+  }
+}
+
+export function getIntentValueRange(
+  enemy: EnemyState,
+  relicId: RelicId | null,
+): { type: 'attack' | 'block' | 'heal'; min: number; max: number; possibleValues: number[]; exactValue: number } | null {
+  const card = enemy.currentCard
+  if (!card) return null
+
+  const intentType = card.element === 'fire' ? 'attack' as const
+    : card.element === 'nature' ? 'block' as const
+    : 'heal' as const
+
+  const exactValue = card.value * ENEMY_ACTION_MULTIPLIER
+
+  if (relicId === 'mirror-shard') {
+    return { type: intentType, min: exactValue, max: exactValue, possibleValues: [exactValue], exactValue }
+  }
+
+  const remaining = enemy.drawPile.filter((c) => c.element === card.element)
+  const allValues = [card.value, ...remaining.map((c) => c.value)]
+    .map((v) => v * ENEMY_ACTION_MULTIPLIER)
+    .sort((a, b) => a - b)
+
+  const unique = [...new Set(allValues)]
+
+  return {
+    type: intentType,
+    min: unique[0] ?? exactValue,
+    max: unique[unique.length - 1] ?? exactValue,
+    possibleValues: unique,
+    exactValue,
   }
 }

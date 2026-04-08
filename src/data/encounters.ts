@@ -1,48 +1,58 @@
 import type { EnemyTemplate } from '../types'
 
+function enemyCard(element: 'fire' | 'nature' | 'water', value: number) {
+  return { element, value, creatureId: '' }
+}
+
 export const ENEMY_TEMPLATES: EnemyTemplate[] = [
   {
-    id: 'bramble',
-    name: 'Bramble',
-    emoji: '🍂',
-    maxHp: 25,
-    intents: [
-      { type: 'attack', value: 6, label: 'Attack 6' },
-      { type: 'attack', value: 8, label: 'Attack 8' },
+    id: 'scorchling',
+    name: 'Scorchling',
+    emoji: '🔥',
+    maxHp: 28,
+    deck: [
+      enemyCard('fire', 2),
+      enemyCard('fire', 3),
+      enemyCard('fire', 4),
+      enemyCard('fire', 5),
+      enemyCard('nature', 1),
+      enemyCard('nature', 3),
+      enemyCard('water', 1),
+      enemyCard('water', 2),
     ],
   },
   {
-    id: 'gale',
-    name: 'Gale',
-    emoji: '🪶',
-    maxHp: 35,
-    intents: [
-      { type: 'attack', value: 8, label: 'Attack 8' },
-      { type: 'attack', value: 12, label: 'Attack 12' },
-      { type: 'defend', value: 6, label: 'Defend 6' },
-    ],
-  },
-  {
-    id: 'mire',
-    name: 'Mire',
-    emoji: '🫧',
+    id: 'mossguard',
+    name: 'Mossguard',
+    emoji: '🌿',
     maxHp: 40,
-    intents: [
-      { type: 'attack', value: 10, label: 'Attack 10' },
-      { type: 'burn', value: 4, label: 'Burn 4' },
-      { type: 'charge', value: 18, label: 'Charging Heavy Strike' },
+    deck: [
+      enemyCard('nature', 2),
+      enemyCard('nature', 3),
+      enemyCard('nature', 4),
+      enemyCard('nature', 5),
+      enemyCard('fire', 2),
+      enemyCard('fire', 4),
+      enemyCard('water', 2),
+      enemyCard('water', 3),
     ],
   },
   {
-    id: 'warden',
-    name: 'The Warden',
-    emoji: '🌑',
-    maxHp: 55,
-    intents: [
-      { type: 'attack', value: 12, label: 'Attack 12' },
-      { type: 'attack', value: 16, label: 'Attack 16' },
-      { type: 'defend', value: 8, label: 'Defend 8' },
-      { type: 'charge', value: 24, label: 'Charging Eclipse' },
+    id: 'tempest',
+    name: 'Tempest',
+    emoji: '🌩️',
+    maxHp: 48,
+    deck: [
+      enemyCard('fire', 2),
+      enemyCard('fire', 3),
+      enemyCard('fire', 4),
+      enemyCard('fire', 5),
+      enemyCard('nature', 3),
+      enemyCard('nature', 4),
+      enemyCard('nature', 5),
+      enemyCard('water', 2),
+      enemyCard('water', 3),
+      enemyCard('water', 4),
     ],
   },
 ]

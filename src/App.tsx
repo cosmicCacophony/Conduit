@@ -34,7 +34,9 @@ function App() {
         return (
           <TeamSelectScreen
             creatures={availableCreatures}
-            onConfirm={(ids) => dispatch({ type: 'SELECT_TEAM', creatureIds: ids })}
+            team={state.team}
+            onSelectTeam={(ids) => dispatch({ type: 'SELECT_TEAM', creatureIds: ids })}
+            onSelectRelic={(relicId) => dispatch({ type: 'SELECT_RELIC', relicId })}
           />
         )
 
@@ -43,7 +45,7 @@ function App() {
           <CombatScreen
             state={state}
             onToggleCard={(index) => dispatch({ type: 'TOGGLE_CARD', index })}
-            onCast={() => dispatch({ type: 'CAST_SPELL' })}
+            onPlayCards={() => dispatch({ type: 'PLAY_CARDS' })}
             onEndTurn={() => dispatch({ type: 'END_TURN' })}
           />
         )

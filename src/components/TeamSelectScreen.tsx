@@ -1,10 +1,13 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
-import type { CreatureTemplate, Element } from '../types'
+import { ALL_RELICS } from '../data/relics'
+import type { CreatureTemplate, Element, Relic, RelicId } from '../types'
 
 type TeamSelectScreenProps = {
   creatures: CreatureTemplate[]
-  onConfirm: (ids: string[]) => void
+  team: CreatureTemplate[]
+  onSelectTeam: (ids: string[]) => void
+  onSelectRelic: (relicId: RelicId) => void
 }
 
 const ELEMENT_SYMBOL: Record<Element, string> = {
@@ -19,8 +22,24 @@ const ELEMENT_LABEL: Record<Element, string> = {
   water: 'Water',
 }
 
-export function TeamSelectScreen({ creatures, onConfirm }: TeamSelectScreenProps) {
+function shuffle<T>(items: T[]): T[] {
+  const next = [...items]
+  for (let i = next.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    const tmp = next[i]
+    next[i] = next[j]!
+    next[j] = tmp!
+  }
+  return next
+}
+
+export function TeamSelectScreen({ creatures, team, onSelectTeam, onSelectRelic }: TeamSelectScreenProps) {
   const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const teamChosen = team.length === 3
+
+  const offeredRelics: Relic[] = useMemo(() => {
+    return shuffle([...ALL_RELICS]).slice(0, 3)
+  }, [])
 
   function toggleSelection(id: string) {
     setSelectedIds((current) => {
@@ -32,6 +51,33 @@ export function TeamSelectScreen({ creatures, onConfirm }: TeamSelectScreenProps
       }
       return [...current, id]
     })
+  }
+
+  if (teamChosen) {
+    return (
+      <section className="screen">
+        <p className="eyebrow">Prepare for battle</p>
+        <h2>Choose a Relic</h2>
+        <p className="screen-copy">
+          Each relic changes how you play. Pick one to carry through all fights.
+        </p>
+
+        <div className="relic-select-grid">
+          {offeredRelics.map((relic) => (
+            <button
+              key={relic.id}
+              type="button"
+              className="relic-select-card"
+              onClick={() => onSelectRelic(relic.id)}
+            >
+              <span className="relic-select-card__emoji">{relic.emoji}</span>
+              <strong>{relic.name}</strong>
+              <span className="relic-select-card__desc">{relic.description}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+    )
   }
 
   const deckPreview = selectedIds
@@ -49,7 +95,7 @@ export function TeamSelectScreen({ creatures, onConfirm }: TeamSelectScreenProps
       <p className="eyebrow">Assemble your team</p>
       <h2>Choose 3 creatures</h2>
       <p className="screen-copy">
-        Each creature adds element cards to your deck. Your team determines what spells you can cast in combat.
+        Each creature adds 5 element cards (values 1-5) to your deck. Your element mix determines your combo options.
       </p>
 
       <div className="creature-select-grid">
@@ -88,9 +134,9 @@ export function TeamSelectScreen({ creatures, onConfirm }: TeamSelectScreenProps
         className="primary-button"
         type="button"
         disabled={selectedIds.length !== 3}
-        onClick={() => onConfirm(selectedIds)}
+        onClick={() => onSelectTeam(selectedIds)}
       >
-        Begin expedition
+        Choose relic
       </button>
     </section>
   )

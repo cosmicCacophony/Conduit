@@ -18,29 +18,29 @@ export interface CreatureTemplate {
   cardValues: number[]
 }
 
-export interface SpellEffect {
+export interface ComboResult {
   damage?: number
   block?: number
   heal?: number
   burn?: number
-  cleanse?: boolean
+  thorns?: number
+  regen?: number
+  cleanse?: number
 }
 
-export interface Spell {
-  id: string
+export type RelicId =
+  | 'ember-heart'
+  | 'stone-skin'
+  | 'glass-cannon'
+  | 'mirror-shard'
+  | 'tide-turner'
+  | 'wellspring'
+
+export interface Relic {
+  id: RelicId
   name: string
-  elements: Element[]
-  tier: number
-  compute: (cards: ElementCard[]) => SpellEffect
-  rangeDescription: string
-}
-
-export type EnemyIntentType = 'attack' | 'defend' | 'burn' | 'charge'
-
-export interface EnemyIntent {
-  type: EnemyIntentType
-  value: number
-  label: string
+  emoji: string
+  description: string
 }
 
 export interface EnemyTemplate {
@@ -48,7 +48,7 @@ export interface EnemyTemplate {
   name: string
   emoji: string
   maxHp: number
-  intents: EnemyIntent[]
+  deck: ElementCard[]
 }
 
 export interface EnemyState {
@@ -59,9 +59,10 @@ export interface EnemyState {
   currentHp: number
   block: number
   burn: number
-  currentIntent: EnemyIntent
-  intents: EnemyIntent[]
-  charging: number | null
+  regen: number
+  drawPile: ElementCard[]
+  discardPile: ElementCard[]
+  currentCard: ElementCard | null
 }
 
 export interface CombatEffect {
@@ -93,13 +94,25 @@ export interface GameState {
   discardPile: ElementCard[]
   hand: ElementCard[]
   selectedIndices: number[]
+
   playerHp: number
   playerMaxHp: number
   playerBlock: number
   playerBurn: number
+  playerThorns: number
+  playerRegen: number
+
+  mana: number
+  bankedMana: number
+  hasSurge: boolean
+  cardsPlayedThisTurn: number
+
   encounters: EnemyTemplate[]
   encounterIndex: number
   enemy: EnemyState | null
+
+  selectedRelic: RelicId | null
+
   combatLog: string[]
   lastEffect: CombatEffect | null
   stats: RunStats
@@ -108,7 +121,8 @@ export interface GameState {
 export type GameAction =
   | { type: 'START_RUN' }
   | { type: 'SELECT_TEAM'; creatureIds: string[] }
+  | { type: 'SELECT_RELIC'; relicId: RelicId }
   | { type: 'TOGGLE_CARD'; index: number }
-  | { type: 'CAST_SPELL' }
+  | { type: 'PLAY_CARDS' }
   | { type: 'END_TURN' }
   | { type: 'RESTART' }
