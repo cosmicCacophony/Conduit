@@ -1,4 +1,5 @@
 import type { ComboResult, ElementCard } from '../types'
+import { ALL_CREATURES } from './creatures'
 
 export function resolveSingle(card: ElementCard): ComboResult {
   switch (card.element) {
@@ -28,21 +29,37 @@ export function resolveCombo(first: ElementCard, second: ElementCard): ComboResu
 
   if (domEl === secEl) {
     const total = dominant.value + secondary.value + 2
+    let result: ComboResult
     switch (domEl) {
       case 'fire':
-        return { damage: total }
+        result = { damage: total }
+        break
       case 'nature':
-        return { block: total }
+        result = { block: total }
+        break
       case 'water':
-        return { heal: total }
+        result = { heal: total }
+        break
     }
+
+    if (dominant.creatureId && dominant.creatureId === secondary.creatureId) {
+      const creature = ALL_CREATURES.find((c) => c.id === dominant.creatureId)
+      if (creature?.signature) {
+        for (const [key, val] of Object.entries(creature.signature)) {
+          const field = key as keyof ComboResult
+          result[field] = (result[field] ?? 0) + (val as number)
+        }
+      }
+    }
+
+    return result
   }
 
   if (domEl === 'fire' && secEl === 'nature') {
     return { damage: dominant.value, burn: secondary.value }
   }
   if (domEl === 'fire' && secEl === 'water') {
-    return { damage: dominant.value, heal: secondary.value }
+    return { damage: dominant.value, vulnerable: secondary.value + 1 }
   }
   if (domEl === 'nature' && secEl === 'fire') {
     return { block: dominant.value, thorns: secondary.value }
@@ -79,6 +96,7 @@ export function describeComboResult(result: ComboResult): string {
   if (result.thorns) parts.push(`${result.thorns} thorns`)
   if (result.regen) parts.push(`${result.regen} regen`)
   if (result.cleanse) parts.push(`cleanse ${result.cleanse} burn`)
+  if (result.vulnerable) parts.push(`${result.vulnerable} vulnerable`)
   return parts.join(' + ')
 }
 

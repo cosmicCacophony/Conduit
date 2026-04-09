@@ -16,6 +16,7 @@ export interface CreatureTemplate {
   emoji: string
   element: Element
   cardValues: number[]
+  signature?: ComboResult
 }
 
 export interface ComboResult {
@@ -26,6 +27,7 @@ export interface ComboResult {
   thorns?: number
   regen?: number
   cleanse?: number
+  vulnerable?: number
 }
 
 export type RelicId =
@@ -60,6 +62,7 @@ export interface EnemyState {
   block: number
   burn: number
   regen: number
+  vulnerable: number
   drawPile: ElementCard[]
   discardPile: ElementCard[]
   currentCard: ElementCard | null

@@ -6,13 +6,27 @@ function enemyCard(element: 'fire' | 'nature' | 'water', value: number) {
 
 export const ENEMY_TEMPLATES: EnemyTemplate[] = [
   {
+    id: 'shore-crab',
+    name: 'Shore Crab',
+    emoji: '🦀',
+    maxHp: 25,
+    deck: [
+      enemyCard('fire', 3),
+      enemyCard('fire', 4),
+      enemyCard('nature', 3),
+      enemyCard('nature', 4),
+      enemyCard('water', 1),
+      enemyCard('water', 2),
+    ],
+  },
+  {
     id: 'scorchling',
     name: 'Scorchling',
     emoji: '🔥',
     maxHp: 28,
     deck: [
-      enemyCard('fire', 2),
       enemyCard('fire', 3),
+      enemyCard('fire', 4),
       enemyCard('fire', 4),
       enemyCard('fire', 5),
       enemyCard('nature', 1),

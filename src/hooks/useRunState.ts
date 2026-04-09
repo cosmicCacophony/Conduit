@@ -3,6 +3,23 @@ import { useMemo, useReducer } from 'react'
 import { ALL_CREATURES } from '../data/creatures'
 import { describeComboResult, getManaCost, resolveCards } from '../data/combos'
 import { ENEMY_TEMPLATES } from '../data/encounters'
+import {
+  PLAYER_MAX_HP,
+  HAND_SIZE,
+  HEAL_BETWEEN_FIGHTS,
+  BASE_MANA,
+  BANK_CAP,
+  SURGE_BONUS,
+  ENEMY_ACTION_MULTIPLIER,
+  VULNERABLE_MULTIPLIER,
+  shuffle,
+  buildDeck,
+  drawCards,
+  drawEnemyCard,
+  createEnemy,
+  dealDamageToEnemy,
+  dealDamageToPlayer,
+} from '../engine/combat-engine'
 import type {
   CombatEffect,
   CreatureTemplate,
@@ -14,15 +31,7 @@ import type {
   RelicId,
 } from '../types'
 
-const PLAYER_MAX_HP = 30
-const HAND_SIZE = 5
-const HEAL_BETWEEN_FIGHTS = 5
 const MAX_LOG_LINES = 12
-
-const BASE_MANA = 6
-const BANK_CAP = 4
-const SURGE_BONUS = 2
-const ENEMY_ACTION_MULTIPLIER = 2
 
 const initialStats: GameState['stats'] = { fightsWon: 0 }
 
@@ -53,17 +62,6 @@ const initialState: GameState = {
   stats: initialStats,
 }
 
-function shuffle<T>(items: T[]): T[] {
-  const next = [...items]
-  for (let i = next.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
-    const tmp = next[i]
-    next[i] = next[j]!
-    next[j] = tmp!
-  }
-  return next
-}
-
 function pushLog(lines: string[], entry: string): string[] {
   return [...lines, entry].slice(-MAX_LOG_LINES)
 }
@@ -72,107 +70,6 @@ let effectTick = 0
 function nextEffect(effect: Omit<CombatEffect, 'tick'>): CombatEffect {
   effectTick += 1
   return { tick: effectTick, ...effect }
-}
-
-function buildDeck(team: CreatureTemplate[]): ElementCard[] {
-  const cards: ElementCard[] = []
-  for (const creature of team) {
-    for (const value of creature.cardValues) {
-      cards.push({ element: creature.element, value, creatureId: creature.id })
-    }
-  }
-  return cards
-}
-
-function drawCards(
-  drawPile: ElementCard[],
-  discardPile: ElementCard[],
-  count: number,
-): { hand: ElementCard[]; drawPile: ElementCard[]; discardPile: ElementCard[] } {
-  let pile = [...drawPile]
-  let discard = [...discardPile]
-  const drawn: ElementCard[] = []
-
-  while (drawn.length < count) {
-    if (pile.length === 0) {
-      if (discard.length === 0) break
-      pile = shuffle(discard)
-      discard = []
-    }
-    drawn.push(pile.pop()!)
-  }
-
-  return { hand: drawn, drawPile: pile, discardPile: discard }
-}
-
-function drawEnemyCard(enemy: EnemyState): { card: ElementCard; enemy: EnemyState } {
-  let drawPile = [...enemy.drawPile]
-  let discardPile = [...enemy.discardPile]
-
-  if (drawPile.length === 0) {
-    if (discardPile.length === 0) {
-      return { card: { element: 'fire', value: 1, creatureId: '' }, enemy }
-    }
-    drawPile = shuffle(discardPile)
-    discardPile = []
-  }
-
-  const card = drawPile.pop()!
-  return {
-    card,
-    enemy: { ...enemy, drawPile, discardPile },
-  }
-}
-
-function createEnemy(template: EnemyTemplate): EnemyState {
-  const shuffledDeck = shuffle([...template.deck])
-  const drawPile = [...shuffledDeck]
-  const firstCard = drawPile.pop()!
-
-  return {
-    id: template.id,
-    name: template.name,
-    emoji: template.emoji,
-    maxHp: template.maxHp,
-    currentHp: template.maxHp,
-    block: 0,
-    burn: 0,
-    regen: 0,
-    drawPile,
-    discardPile: [],
-    currentCard: firstCard,
-  }
-}
-
-function dealDamageToEnemy(
-  enemy: EnemyState,
-  rawDamage: number,
-): { enemy: EnemyState; dealt: number; blocked: number } {
-  const blocked = Math.min(enemy.block, rawDamage)
-  const dealt = rawDamage - blocked
-  return {
-    enemy: {
-      ...enemy,
-      block: enemy.block - blocked,
-      currentHp: Math.max(0, enemy.currentHp - dealt),
-    },
-    dealt,
-    blocked,
-  }
-}
-
-function dealDamageToPlayer(
-  state: GameState,
-  rawDamage: number,
-): { playerHp: number; playerBlock: number; dealt: number; blocked: number } {
-  const blocked = Math.min(state.playerBlock, rawDamage)
-  const dealt = rawDamage - blocked
-  return {
-    playerHp: Math.max(0, state.playerHp - dealt),
-    playerBlock: state.playerBlock - blocked,
-    dealt,
-    blocked,
-  }
 }
 
 function advanceEncounter(state: GameState): GameState {
@@ -339,6 +236,11 @@ function startNewRound(state: GameState): GameState {
     }
   }
 
+  // Vulnerable tick-down
+  if (enemy && enemy.vulnerable > 0) {
+    enemy = { ...enemy, vulnerable: Math.max(0, enemy.vulnerable - 1) }
+  }
+
   // Discard remaining hand, draw a new hand
   const newDiscard = [...state.discardPile, ...state.hand]
   const { hand: newHand, drawPile, discardPile } = drawCards(state.drawPile, newDiscard, HAND_SIZE)
@@ -487,6 +389,9 @@ function reducer(state: GameState, action: GameAction): GameState {
         if (state.selectedRelic === 'glass-cannon') {
           dmg = Math.ceil(dmg * 1.5)
         }
+        if (enemy.vulnerable > 0) {
+          dmg = Math.ceil(dmg * VULNERABLE_MULTIPLIER)
+        }
         const dmgResult = dealDamageToEnemy(enemy, dmg)
         enemy = dmgResult.enemy
         parts.push(`${dmgResult.dealt} damage${dmgResult.blocked > 0 ? ` (${dmgResult.blocked} blocked)` : ''}`)
@@ -535,6 +440,12 @@ function reducer(state: GameState, action: GameAction): GameState {
       if (result.burn) {
         enemy = { ...enemy, burn: enemy.burn + result.burn }
         parts.push(`${result.burn} burn`)
+      }
+
+      // Apply vulnerable to enemy
+      if (result.vulnerable) {
+        enemy = { ...enemy, vulnerable: enemy.vulnerable + result.vulnerable }
+        parts.push(`${result.vulnerable} vulnerable`)
       }
 
       // Apply thorns to player
@@ -606,10 +517,7 @@ function reducer(state: GameState, action: GameAction): GameState {
           if (state.selectedRelic === 'glass-cannon') {
             dmg = Math.ceil(dmg * 1.5)
           }
-          const result = dealDamageToPlayer(
-            { ...state, playerHp, playerBlock },
-            dmg,
-          )
+          const result = dealDamageToPlayer(playerHp, playerBlock, dmg)
           playerHp = result.playerHp
           playerBlock = result.playerBlock
 
