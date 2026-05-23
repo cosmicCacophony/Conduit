@@ -20,6 +20,17 @@ export interface GameMetrics {
   decisionsBranchingFactor: number
 
   windDirectionsSeen: number
+
+  // Fun-signal additions
+  cascadesByAuthorship: { player: number; enemy: number; mixed: number }
+  bigSpellCasts: number
+  abilityCasts: Record<string, number>
+  avgDistinctChoicesPerTurn: number
+  directDamageDealt: number
+  directDamageTaken: number
+  cascadeDamageDealt: number
+  cascadeDamageTaken: number
+  cascadeDamagePct: number
 }
 
 const ZERO_REACTION: Record<ReactionType, number> = {
@@ -36,17 +47,30 @@ const ZERO_ELEMENT: Record<Element, number> = {
   earth: 0,
 }
 
+function zeroAuthorship(): { player: number; enemy: number; mixed: number } {
+  return { player: 0, enemy: 0, mixed: 0 }
+}
+
 export function extractMetrics(result: GameResult): GameMetrics {
   const cascadesByType = { ...ZERO_REACTION }
   const terrainByElement = { ...ZERO_ELEMENT }
+  const cascadesByAuthorship = zeroAuthorship()
   const winds = new Set<string>()
   let cascadesTriggered = 0
   let biggestCascadeSize = 0
   let cascadeDamageTotal = 0
-  let totalDamageDealt = 0
-  let totalDamageTaken = 0
   let totalDecisions = 0
   let decisionEventCount = 0
+
+  let directDamageDealt = 0
+  let directDamageTaken = 0
+  let cascadeDamageDealt = 0
+  let cascadeDamageTaken = 0
+
+  const abilityCasts: Record<string, number> = {}
+  let bigSpellCasts = 0
+  let varianceTotal = 0
+  let varianceCount = 0
 
   for (const e of result.events as GameEvent[]) {
     switch (e.type) {
@@ -58,10 +82,16 @@ export function extractMetrics(result: GameResult): GameMetrics {
         cascadesByType[e.reactionType]++
         if (e.size > biggestCascadeSize) biggestCascadeSize = e.size
         cascadeDamageTotal += e.damage
+        cascadesByAuthorship[e.authorship]++
         break
       case 'damage':
-        if (e.targetIsPlayer) totalDamageTaken += e.amount
-        else totalDamageDealt += e.amount
+        if (e.source === 'cascade') {
+          if (e.targetIsPlayer) cascadeDamageTaken += e.amount
+          else cascadeDamageDealt += e.amount
+        } else {
+          if (e.targetIsPlayer) directDamageTaken += e.amount
+          else directDamageDealt += e.amount
+        }
         break
       case 'terrainPlaced':
         if (e.placedBy === 'player') {
@@ -74,6 +104,14 @@ export function extractMetrics(result: GameResult): GameMetrics {
           decisionEventCount++
         }
         break
+      case 'abilityCast':
+        abilityCasts[e.abilityId] = (abilityCasts[e.abilityId] ?? 0) + 1
+        if (e.manaCost >= 3) bigSpellCasts++
+        break
+      case 'actionVariance':
+        varianceTotal += e.distinctChoices
+        varianceCount++
+        break
     }
   }
 
@@ -85,6 +123,13 @@ export function extractMetrics(result: GameResult): GameMetrics {
     (s, c) => s + Math.max(0, c.currentHp),
     0,
   )
+
+  const totalDamageDealt = directDamageDealt + cascadeDamageDealt
+  const totalDamageTaken = directDamageTaken + cascadeDamageTaken
+  const totalDamage = totalDamageDealt + totalDamageTaken
+  const cascadeDamagePct =
+    totalDamage > 0 ? (cascadeDamageDealt + cascadeDamageTaken) / totalDamage : 0
+  const avgDistinctChoicesPerTurn = varianceCount > 0 ? varianceTotal / varianceCount : 0
 
   return {
     won: result.outcome === 'victory',
@@ -101,6 +146,15 @@ export function extractMetrics(result: GameResult): GameMetrics {
     terrainPlacementsByElement: terrainByElement,
     decisionsBranchingFactor: decisionEventCount > 0 ? totalDecisions / decisionEventCount : 0,
     windDirectionsSeen: winds.size,
+    cascadesByAuthorship,
+    bigSpellCasts,
+    abilityCasts,
+    avgDistinctChoicesPerTurn,
+    directDamageDealt,
+    directDamageTaken,
+    cascadeDamageDealt,
+    cascadeDamageTaken,
+    cascadeDamagePct,
   }
 }
 
@@ -118,6 +172,14 @@ export interface AggStats {
   avgBranchingFactor: number
   cascadeMix: Record<ReactionType, number>
   terrainMix: Record<Element, number>
+
+  // Fun-signal aggregates
+  avgPlayerAuthoredCascadePct: number
+  avgBigSpellCastsPerGame: number
+  avgDistinctChoicesPerTurn: number
+  avgCascadeDamagePct: number
+  abilityCastsByName: Record<string, number>
+  cascadeAuthorshipTotals: { player: number; enemy: number; mixed: number }
 }
 
 export function aggregate(metrics: GameMetrics[]): AggStats {
@@ -136,6 +198,12 @@ export function aggregate(metrics: GameMetrics[]): AggStats {
       avgBranchingFactor: 0,
       cascadeMix: { ...ZERO_REACTION },
       terrainMix: { ...ZERO_ELEMENT },
+      avgPlayerAuthoredCascadePct: 0,
+      avgBigSpellCastsPerGame: 0,
+      avgDistinctChoicesPerTurn: 0,
+      avgCascadeDamagePct: 0,
+      abilityCastsByName: {},
+      cascadeAuthorshipTotals: zeroAuthorship(),
     }
   }
 
@@ -143,6 +211,9 @@ export function aggregate(metrics: GameMetrics[]): AggStats {
   const sum = (fn: (m: GameMetrics) => number) => metrics.reduce((s, m) => s + fn(m), 0)
   const cascadeMix = { ...ZERO_REACTION }
   const terrainMix = { ...ZERO_ELEMENT }
+  const cascadeAuthorshipTotals = zeroAuthorship()
+  const abilityCastsByName: Record<string, number> = {}
+
   for (const m of metrics) {
     for (const k of Object.keys(cascadeMix) as ReactionType[]) {
       cascadeMix[k] += m.cascadesByType[k]
@@ -150,7 +221,27 @@ export function aggregate(metrics: GameMetrics[]): AggStats {
     for (const k of Object.keys(terrainMix) as Element[]) {
       terrainMix[k] += m.terrainPlacementsByElement[k]
     }
+    cascadeAuthorshipTotals.player += m.cascadesByAuthorship.player
+    cascadeAuthorshipTotals.enemy += m.cascadesByAuthorship.enemy
+    cascadeAuthorshipTotals.mixed += m.cascadesByAuthorship.mixed
+    for (const [abilityId, count] of Object.entries(m.abilityCasts)) {
+      abilityCastsByName[abilityId] = (abilityCastsByName[abilityId] ?? 0) + count
+    }
   }
+
+  // Per-game player-authored share, averaged across games (skip games with no cascades)
+  let authoredShareTotal = 0
+  let authoredShareCount = 0
+  for (const m of metrics) {
+    const total =
+      m.cascadesByAuthorship.player + m.cascadesByAuthorship.enemy + m.cascadesByAuthorship.mixed
+    if (total > 0) {
+      authoredShareTotal += m.cascadesByAuthorship.player / total
+      authoredShareCount++
+    }
+  }
+  const avgPlayerAuthoredCascadePct =
+    authoredShareCount > 0 ? authoredShareTotal / authoredShareCount : 0
 
   return {
     games: metrics.length,
@@ -166,5 +257,11 @@ export function aggregate(metrics: GameMetrics[]): AggStats {
     avgBranchingFactor: sum((m) => m.decisionsBranchingFactor) / metrics.length,
     cascadeMix,
     terrainMix,
+    avgPlayerAuthoredCascadePct,
+    avgBigSpellCastsPerGame: sum((m) => m.bigSpellCasts) / metrics.length,
+    avgDistinctChoicesPerTurn: sum((m) => m.avgDistinctChoicesPerTurn) / metrics.length,
+    avgCascadeDamagePct: sum((m) => m.cascadeDamagePct) / metrics.length,
+    abilityCastsByName,
+    cascadeAuthorshipTotals,
   }
 }

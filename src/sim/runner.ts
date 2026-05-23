@@ -15,7 +15,7 @@ import {
 import { detectCascades } from '../grid/cascade'
 import type { BattleState, Element, ReactionType } from '../grid/types'
 import { mulberry32 } from './random'
-import type { Strategy } from './strategies'
+import { ALL_STRATEGIES, type Strategy } from './strategies'
 
 export const DEFAULT_TURN_CAP = 30
 
@@ -31,10 +31,19 @@ export interface GameResult {
 
 export type GameEvent =
   | { type: 'turnStart'; turn: number; wind: BattleState['wind'] }
-  | { type: 'cascade'; turn: number; reactionType: ReactionType; size: number; damage: number }
+  | {
+      type: 'cascade'
+      turn: number
+      reactionType: ReactionType
+      size: number
+      damage: number
+      authorship: 'player' | 'enemy' | 'mixed'
+    }
   | { type: 'damage'; turn: number; source: 'player' | 'enemy' | 'cascade'; amount: number; targetIsPlayer: boolean }
   | { type: 'terrainPlaced'; turn: number; element: Element; tilesAdded: number; placedBy: 'player' | 'enemy' }
   | { type: 'decisionCount'; turn: number; actorIsPlayer: boolean; legalActions: number }
+  | { type: 'actionVariance'; turn: number; distinctChoices: number }
+  | { type: 'abilityCast'; turn: number; abilityId: string; manaCost: number; byPlayer: true }
 
 export interface RunOptions {
   seed: number
@@ -158,6 +167,22 @@ export function playGame(opts: RunOptions): GameResult {
           legalActions: actionsBefore,
         })
 
+        // Action-variance probe across all 5 strategies (read-only).
+        // Each probe gets its own seeded rng so the main game rng isn't consumed.
+        {
+          const probes = new Set<string>()
+          for (let i = 0; i < ALL_STRATEGIES.length; i++) {
+            const probeRng = mulberry32(opts.seed + state.turnNumber * 100 + i)
+            const probe = ALL_STRATEGIES[i].selectAction(state, livingActor, probeRng)
+            probes.add(probe ? `${probe.abilityId}@${probe.target.x},${probe.target.y}` : 'null')
+          }
+          events.push({
+            type: 'actionVariance',
+            turn: state.turnNumber,
+            distinctChoices: probes.size,
+          })
+        }
+
         const choice = opts.strategy.selectAction(state, livingActor, rng)
         if (choice) {
           const before = state
@@ -183,6 +208,16 @@ export function playGame(opts: RunOptions): GameResult {
                 source: 'player',
                 amount: enemyHpBefore - enemyHpAfter,
                 targetIsPlayer: false,
+              })
+            }
+            const ability = livingActor.abilities.find((a) => a.id === choice.abilityId)
+            if (ability) {
+              events.push({
+                type: 'abilityCast',
+                turn: state.turnNumber,
+                abilityId: choice.abilityId,
+                manaCost: ability.manaCost,
+                byPlayer: true,
               })
             }
           }
@@ -229,14 +264,24 @@ export function playGame(opts: RunOptions): GameResult {
       const beforeReactions = detectCascades(state.grid).reactions
       const before = state
       state = applyCascadePhase(state)
-      // Track all reactions resolved this phase by diffing
       for (const r of beforeReactions) {
+        const placedBys: Array<'player' | 'enemy'> = []
+        for (const p of [...r.primaryTiles, ...r.secondaryTiles]) {
+          const t = before.grid[p.y]?.[p.x]?.terrain
+          if (t?.placedBy) placedBys.push(t.placedBy)
+        }
+        let authorship: 'player' | 'enemy' | 'mixed'
+        if (placedBys.length === 0) authorship = 'mixed'
+        else if (placedBys.every((x) => x === 'player')) authorship = 'player'
+        else if (placedBys.every((x) => x === 'enemy')) authorship = 'enemy'
+        else authorship = 'mixed'
         events.push({
           type: 'cascade',
           turn: state.turnNumber,
           reactionType: r.type,
           size: r.primaryTiles.length + r.secondaryTiles.length,
           damage: r.damage,
+          authorship,
         })
       }
       const playerHpBefore = totalHp(before.playerChars)
