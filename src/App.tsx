@@ -5,6 +5,7 @@ import { playSoundCue } from './audio'
 import { CombatScreen } from './components/CombatScreen'
 import { EventScreen } from './components/EventScreen'
 import { GameOverScreen } from './components/GameOverScreen'
+import { GridBattle } from './components/grid/GridBattle'
 import { PathScreen } from './components/PathScreen'
 import { RecruitScreen } from './components/RecruitScreen'
 import { RestScreen } from './components/RestScreen'
@@ -19,6 +20,7 @@ function App() {
   const { state, dispatch, availableCreatures, selectedTeam, activeCreature, currentEnemy, currentEvent } =
     useRunState()
   const [history] = useState<RunHistoryEntry[]>(() => readRunHistory())
+  const [driftMode, setDriftMode] = useState(false)
   const savedRunRef = useRef<string | null>(null)
   const playedEffectRef = useRef<number | null>(null)
 
@@ -74,9 +76,19 @@ function App() {
   }
 
   function renderScreen() {
+    if (driftMode) {
+      return <GridBattle onExit={() => setDriftMode(false)} />
+    }
+
     switch (state.phase) {
       case 'title':
-        return <TitleScreen onStart={() => dispatch({ type: 'START_RUN' })} summary={historySummary} />
+        return (
+          <TitleScreen
+            onStart={() => dispatch({ type: 'START_RUN' })}
+            onStartDrift={() => setDriftMode(true)}
+            summary={historySummary}
+          />
+        )
 
       case 'pathChoice':
         return <PathScreen layerIndex={state.encounterIndex} options={state.pathOptions} onChoose={(encounterId) => dispatch({ type: 'CHOOSE_PATH', encounterId })} />

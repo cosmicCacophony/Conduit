@@ -1,5 +1,6 @@
 type TitleScreenProps = {
   onStart: () => void
+  onStartDrift?: () => void
   summary: {
     runs: number
     wins: number
@@ -7,7 +8,7 @@ type TitleScreenProps = {
   }
 }
 
-export function TitleScreen({ onStart, summary }: TitleScreenProps) {
+export function TitleScreen({ onStart, onStartDrift, summary }: TitleScreenProps) {
   return (
     <section className="screen screen--title">
       <p className="eyebrow">A quiet island. A strange pull.</p>
@@ -31,9 +32,16 @@ export function TitleScreen({ onStart, summary }: TitleScreenProps) {
           <span>Best streak</span>
         </div>
       </div>
-      <button className="primary-button" type="button" onClick={onStart}>
-        Begin
-      </button>
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+        <button className="primary-button" type="button" onClick={onStart}>
+          Begin
+        </button>
+        {onStartDrift ? (
+          <button className="secondary-button" type="button" onClick={onStartDrift}>
+            Drift (prototype)
+          </button>
+        ) : null}
+      </div>
     </section>
   )
 }
