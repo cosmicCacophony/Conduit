@@ -12,6 +12,7 @@ import {
 } from './constants'
 import { applyDamageEvents, resolveCascades } from './cascade'
 import { applyFlow, cloneGrid, decrementTerrain } from './flow'
+import { defaultRandom, type Random } from './random'
 import type {
   Ability,
   AbilityShape,
@@ -36,22 +37,22 @@ function emptyGrid(): Tile[][] {
   return grid
 }
 
-function shuffle<T>(arr: T[]): T[] {
+function shuffle<T>(arr: T[], rng: Random): T[] {
   const out = [...arr]
   for (let i = out.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
+    const j = Math.floor(rng.next() * (i + 1))
     ;[out[i], out[j]] = [out[j], out[i]]
   }
   return out
 }
 
-function drawCards(state: BattleState, count: number): BattleState {
+function drawCards(state: BattleState, count: number, rng: Random): BattleState {
   let deck = [...state.deck]
   let discard = [...state.discard]
   const hand: Card[] = []
   for (let i = 0; i < count; i++) {
     if (deck.length === 0) {
-      deck = shuffle(discard)
+      deck = shuffle(discard, rng)
       discard = []
     }
     if (deck.length === 0) break
@@ -61,19 +62,33 @@ function drawCards(state: BattleState, count: number): BattleState {
   return { ...state, deck, discard, hand }
 }
 
-export function createInitialState(): BattleState {
-  const playerChars: GridCharacter[] = [
-    instantiateCharacter(PLAYER_TEMPLATES[0], true, { x: 0, y: 4 }),
-    instantiateCharacter(PLAYER_TEMPLATES[1], true, { x: 1, y: 4 }),
-    instantiateCharacter(PLAYER_TEMPLATES[2], true, { x: 2, y: 4 }),
-  ]
-  const enemyChars: GridCharacter[] = [
-    instantiateCharacter(ENEMY_TEMPLATES[0], false, { x: 4, y: 0 }),
-    instantiateCharacter(ENEMY_TEMPLATES[1], false, { x: 3, y: 0 }),
-    instantiateCharacter(ENEMY_TEMPLATES[2], false, { x: 2, y: 0 }),
-  ]
+export interface InitialStateOptions {
+  rng?: Random
+  playerTemplateIds?: string[]
+  enemyTemplateIds?: string[]
+}
 
-  const startingWind: WindDirection = WIND_ROTATION[Math.floor(Math.random() * WIND_ROTATION.length)]
+export function createInitialState(options: InitialStateOptions = {}): BattleState {
+  const rng = options.rng ?? defaultRandom
+
+  const playerIds = options.playerTemplateIds ?? PLAYER_TEMPLATES.map((t) => t.id)
+  const enemyIds = options.enemyTemplateIds ?? ENEMY_TEMPLATES.map((t) => t.id)
+
+  const playerChars: GridCharacter[] = playerIds.map((id, idx) => {
+    const template = PLAYER_TEMPLATES.find((t) => t.id === id) ?? PLAYER_TEMPLATES[idx % PLAYER_TEMPLATES.length]
+    const char = instantiateCharacter(template, true, { x: idx, y: 4 })
+    char.id = `${template.id}-p${idx}`
+    return char
+  })
+
+  const enemyChars: GridCharacter[] = enemyIds.map((id, idx) => {
+    const template = ENEMY_TEMPLATES.find((t) => t.id === id) ?? ENEMY_TEMPLATES[idx % ENEMY_TEMPLATES.length]
+    const char = instantiateCharacter(template, false, { x: GRID_WIDTH - 1 - idx, y: 0 })
+    char.id = `${template.id}-e${idx}`
+    return char
+  })
+
+  const startingWind: WindDirection = WIND_ROTATION[Math.floor(rng.next() * WIND_ROTATION.length)]
 
   const initial: BattleState = {
     grid: emptyGrid(),
@@ -81,7 +96,7 @@ export function createInitialState(): BattleState {
     height: GRID_HEIGHT,
     playerChars,
     enemyChars,
-    deck: shuffle(buildStarterDeck()),
+    deck: shuffle(buildStarterDeck(), rng),
     discard: [],
     hand: [],
     assignments: {},
@@ -96,7 +111,7 @@ export function createInitialState(): BattleState {
     pendingFlash: null,
   }
 
-  return drawCards(initial, HAND_SIZE)
+  return drawCards(initial, HAND_SIZE, rng)
 }
 
 export function assignCard(state: BattleState, characterId: string, cardId: string): BattleState {
@@ -262,7 +277,7 @@ export function getAbilityTargets(
   return result
 }
 
-function expandShape(
+export function expandShape(
   origin: Position,
   shape: AbilityShape,
   fromPos: Position,
@@ -561,7 +576,7 @@ export function applyCascadePhase(state: BattleState): BattleState {
   }
 }
 
-export function applyCleanupPhase(state: BattleState): BattleState {
+export function applyCleanupPhase(state: BattleState, rng: Random = defaultRandom): BattleState {
   if (state.phase !== 'cleanup') return state
 
   const grid = decrementTerrain(state.grid)
@@ -582,6 +597,6 @@ export function applyCleanupPhase(state: BattleState): BattleState {
     pendingFlash: null,
   }
 
-  nextState = drawCards(nextState, HAND_SIZE)
+  nextState = drawCards(nextState, HAND_SIZE, rng)
   return nextState
 }
