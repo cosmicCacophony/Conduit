@@ -97,6 +97,57 @@ function manhattan(a: Position, b: Position): number {
   return Math.abs(a.x - b.x) + Math.abs(a.y - b.y)
 }
 
+function buildTelegraphedTiles(state: BattleState): Set<string> {
+  const set = new Set<string>()
+  for (const intent of state.enemyIntents ?? []) {
+    if (!intent.plannedAbility) continue
+    const enemy = state.enemyChars.find((e) => e.id === intent.enemyId)
+    if (!enemy || enemy.currentHp <= 0) continue
+    const ability = enemy.abilities.find((a) => a.id === intent.plannedAbility!.abilityId)
+    if (!ability || ability.damage <= 0) continue
+    const fromPos = intent.plannedMove ?? enemy.position
+    const tiles = expandShape(intent.plannedAbility.targetTile, ability.shape, fromPos).filter(
+      isInBounds,
+    )
+    for (const t of tiles) set.add(`${t.x},${t.y}`)
+  }
+  return set
+}
+
+export function isTileTelegraphed(state: BattleState, p: Position): boolean {
+  return buildTelegraphedTiles(state).has(`${p.x},${p.y}`)
+}
+
+function chooseMoveTowardSafe(
+  state: BattleState,
+  actor: GridCharacter,
+  target: Position,
+): Position | null {
+  const tiles = getValidMoveTiles(state, actor)
+  if (tiles.length === 0) return null
+  const telegraphed = buildTelegraphedTiles(state)
+  const here = `${actor.position.x},${actor.position.y}`
+  const standingInDanger = telegraphed.has(here)
+
+  let best: Position | null = null
+  let bestScore = -Infinity
+  for (const t of tiles) {
+    const isDanger = telegraphed.has(`${t.x},${t.y}`)
+    const dist = manhattan(t, target)
+    let score = -dist
+    if (isDanger) score -= 100
+    if (!isDanger && standingInDanger) score += 50
+    if (score > bestScore) {
+      bestScore = score
+      best = t
+    }
+  }
+  if (!best) return null
+  const sameOrFurther = manhattan(best, target) >= manhattan(actor.position, target)
+  if (sameOrFurther && !standingInDanger) return null
+  return best
+}
+
 function chooseMoveToward(state: BattleState, actor: GridCharacter, target: Position): Position | null {
   const tiles = getValidMoveTiles(state, actor)
   if (tiles.length === 0) return null
@@ -306,7 +357,7 @@ export const GreedyDamageStrategy: Strategy = {
   selectMove(state, actor) {
     const lowest = lowestHpEnemy(state)
     if (!lowest) return null
-    return chooseMoveToward(state, actor, lowest.position)
+    return chooseMoveTowardSafe(state, actor, lowest.position)
   },
   selectAction(state, actor) {
     const actions = enumerateActions(state, actor)
@@ -364,7 +415,7 @@ export const CascadeBuilderStrategy: Strategy = {
       if (enemy) target = enemy.position
     }
     if (!target) return null
-    return chooseMoveToward(state, actor, target)
+    return chooseMoveTowardSafe(state, actor, target)
   },
   selectAction(state, actor) {
     const actions = enumerateActions(state, actor)
@@ -523,10 +574,75 @@ export const WindRiderStrategy: Strategy = {
   },
 }
 
+// ----------------------------------------------------------------------------
+// 6. Dodger
+// ----------------------------------------------------------------------------
+export const DodgerStrategy: Strategy = {
+  name: 'Dodger',
+  assign(state) {
+    const { livingChars, hand } = buildAssignContext(state)
+    return uniqueAssignment(livingChars, hand, (character, card) => {
+      const mana = manaIfAssigned(character, card)
+      const role = characterRoleScore(character, 'damage')
+      return mana * (role + 1) * 8 + card.value
+    })
+  },
+  selectMove(state, actor) {
+    const tiles = getValidMoveTiles(state, actor)
+    if (tiles.length === 0) return null
+    const telegraphed = buildTelegraphedTiles(state)
+    const standingInDanger = telegraphed.has(`${actor.position.x},${actor.position.y}`)
+
+    const enemy = lowestHpEnemy(state) ?? nearestEnemy(state, actor)
+    const targetPos = enemy?.position
+
+    let best: Position = actor.position
+    let bestScore = -Infinity
+    const here = `${actor.position.x},${actor.position.y}`
+    const considered: Position[] = standingInDanger ? tiles : [actor.position, ...tiles]
+    for (const t of considered) {
+      const key = `${t.x},${t.y}`
+      const inDanger = telegraphed.has(key)
+      let score = 0
+      if (inDanger) score -= 200
+      if (!inDanger && standingInDanger) score += 100
+      if (targetPos) score -= manhattan(t, targetPos)
+      if (key === here && !standingInDanger) score += 0.1
+      if (score > bestScore) {
+        bestScore = score
+        best = t
+      }
+    }
+    if (best.x === actor.position.x && best.y === actor.position.y) return null
+    return best
+  },
+  selectAction(state, actor) {
+    const actions = enumerateActions(state, actor)
+    if (actions.length === 0) return null
+    let best = actions[0]
+    let bestScore = -Infinity
+    for (const a of actions) {
+      const dmg = damageDealtByAction(state, a.ability, a.tiles, 'player')
+      let score = dmg.totalDamage * 8
+      if (dmg.totalDamage > 0 && dmg.lowestHpHit !== Infinity) {
+        if (dmg.lowestHpHit <= a.ability.damage) score += 40
+      }
+      score -= a.ability.manaCost
+      if (score > bestScore) {
+        bestScore = score
+        best = a
+      }
+    }
+    if (bestScore <= 0) return null
+    return { abilityId: best.ability.id, target: best.target }
+  },
+}
+
 export const ALL_STRATEGIES: Strategy[] = [
   RandomStrategy,
   GreedyDamageStrategy,
   CascadeBuilderStrategy,
   WallSpammerStrategy,
   WindRiderStrategy,
+  DodgerStrategy,
 ]

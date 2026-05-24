@@ -319,3 +319,130 @@ Don't tune yet — let the user playtest the symmetric MVP first. Asymmetry betw
 - Is the "step on means consumed" rule clear, or do players walk over them by accident?
 - Does the asymmetric splash damage rule + Mend create the intended decision? ("Heal here means I'm in the splash zone of my own setup next turn.")
 - Should enemy pickup be removed for v2? Currently 50/50 player/enemy claim split — feels fair but might frustrate players who clearly "set up" a bonus and watch an enemy take it.
+
+---
+
+## 2026-05-24 update #6: water gets damage (Splash 1 / Torrent 1-per-tile)
+
+**Trigger:** Playtest reached a Tidecaller-as-last-survivor vs Tide Spirit endgame. Both have 0-damage abilities. No fire/lightning on the board → no damaging cascade possible. Game was a literal soft-lock — no turn cap in the browser build, infinite stalemate. The user asked "shouldn't all classes be able to deal some damage?"
+
+**Diagnosis:** Yes. Water was the only element with 0 damage on both abilities. Original design intent was "water = pure cascade primer," which is defensible when she has fire/lightning teammates but breaks the moment she's alone. Tidecaller-mirror was the only matchup that was mathematically unwinnable.
+
+**Change shipped (`src/grid/constants.ts`):**
+
+- `splash`: damage 0 → **1** (single tile, range 3, water)
+- `torrent`: damage 0 → **1** (3-tile line, range 3, water — up to 3 total damage)
+- Descriptions updated to "Place water on a tile, deal 1 damage." / "Place water in a 3-tile line, deal 1 damage."
+
+Pattern matches fire (Ember 1 / Inferno 1-per-tile in 2x2). Water remains the lowest-damage element by max ceiling (Torrent 3 < Inferno 4 < Thundercrack 8) but no longer toothless.
+
+**Variance shift (post-water-buff vs post-bonus baseline):**
+
+| Strategy | Pre | Post | Δ |
+| --- | --- | --- | --- |
+| Random | 3% | 1% | flat |
+| GreedyDamage | 80% | **98%** | +18 |
+| CascadeBuilder | 20% | 33% | +13 |
+| WallSpammer | 6% | 4% | flat |
+| WindRider | 59% | 74% | +15 |
+
+| Signal | Pre | Post | Note |
+| --- | --- | --- | --- |
+| Avg game length | 6.51 turns | **5.00** | -1.5 — third damage dealer ends games faster |
+| Player-authored cascade % | 17% | 22% | up — water tiles placed more often |
+| Big spells/game | 6.07 | 5.02 | down — games end before late-game |
+| Cascade dmg % | 27% | 22% | down — direct damage takes more share |
+
+**Verdict moved from `LOPSIDED (WallSpammer weak)` back to `DOMINANT (GreedyDamage)`** — GreedyDamage now wins ≥94% across all 4 comps including Storm Trio (was 45%, now 99%). The previous saving-grace matchup — Storm Trio resists chain-spam because lightning enemies are fast — got nuked because Tidecaller now chips Storm Sprites every turn for 1, denying their out-trade.
+
+**Why this overshoots.** Adding any damage to water turns Tidecaller from utility into a third chipper. The player team goes from 2 damage dealers + 1 setup to 3 damage dealers. GreedyDamage benefits the most because it's already the "stack hits, win fast" strategy — more chippers = strictly faster wins.
+
+The change *fixes the intended hole* (Tidecaller mirror is now winnable, ~8 turns of grinding), but it *also* tipped the strategy balance.
+
+**Tuning options if we want to walk it back:**
+
+1. **Drop Torrent to 0 dmg, keep Splash at 1.** Mirror-endgame still resolves (8-turn grind). Tidecaller's big spell stays utility. Less player-team buff overall. Probably brings GreedyDamage back to ~85-88%.
+2. **Cap Torrent at 1 total damage (single hit on first enemy in line).** Torrent feels like a damage spell but doesn't AOE-chip clumps.
+3. **Reduce Tidecaller's HP from 8 → 6.** Compensate her damage upgrade with frailty. Easier to kill = team's most-resilient chipper becomes vulnerable.
+4. **Buff Tide Spirit's movement from 1 → 2.** Currently Tide Spirit is too slow to actually threaten with new chip damage. Bumping her speed restores enemy threat parity.
+
+**Recommendation if dominance bothers us in playtest:** Option 1 (Torrent → 0 dmg). Smallest change, most surgical, keeps Splash chip + cascade-utility role for Torrent. Don't ship yet — let the user feel the change first.
+
+**Open playtest questions:**
+
+- Does the Tidecaller mirror actually resolve cleanly now, or does it drag for 10+ turns and feel boring?
+- Is "Splash chips for 1" a meaningful new lever, or does it just mean "spam Splash every turn"?
+- Does Torrent's 3-tile line damage feel impactful or noise (1 per tile is the smallest AOE hit in the game)?
+- Is GreedyDamage's 98% dominance sim-only, or does it match what humans feel? AI doesn't dodge splash; humans should be punished less for sloppy positioning when they don't dodge, which would moderate the dominance.
+
+---
+
+## Telegraphs (Into-the-Breach style enemy intent preview)
+
+**Date:** 2026-05-24
+
+**Why this exists.** User raised two design concerns at once: (1) "shouldn't both players move at the same time so the game is more fair, you have to anticipate where your opp might move and play their spells", and (2) "I generally feel like we are going into a direction where we could have a simple fun game to build on but I feel like a few pieces are missing". The first is a real complaint about first-mover advantage and the static-feeling reactive AI; the second is a zoom-out about whether the design has real strategic depth.
+
+We chose telegraphs (visible enemy intent commitment) over true simultaneous resolution because:
+
+- **Blind-commit feels random.** Frozen-Synapse-style "guess what they'll do" is high-skill PvP-meta but feel-bad in single-player roguelike when you guess wrong.
+- **Telegraphs convert the game into a puzzle.** You see what's coming, you decide how to dodge or pre-empt. That's the Into the Breach pattern, and it's the right shape for this game.
+- **Implementation is bounded.** No new mechanics like push/displace; cancellation is "kill them or step off the tile."
+
+### Mechanics
+
+- Each enemy commits an `EnemyIntent` (planned move + planned ability target tile) at the end of every turn.
+- Intent is rendered on the grid at the start of the next turn: ghost emoji on planned-move tile, pulsing orange highlight + element glyph on AOE tiles, element badge on the enemy sprite.
+- Targets are **tiles, not units**. Once committed, an enemy's ability fires at the committed tile regardless of who's standing there. Dodge by moving off; cancel by killing the enemy.
+- Bootstrap: intents are also planned during `createInitialState` so turn 1 already has telegraphs.
+- A "X's Y hits empty ground — dodged" log entry fires whenever a damaging ability AOE catches no players at resolution time.
+
+### Code surface
+
+- `src/grid/types.ts`: added `EnemyIntent` type and `BattleState.enemyIntents`.
+- `src/grid/engine.ts`: split the old `simulateEnemyAction` into `planEnemyIntent` (returns intent without mutating state) and `executeEnemyIntent` (applies committed intent to state). New helpers: `planAllEnemyIntents`, `dropDeadIntents`. Wired into `createInitialState`, `applyCleanupPhase`, `resolveAbilityOnGrid`, and `applyCascadePhase` (the last two drop dead enemies' intents so killed telegraphs vanish from the board immediately).
+- `src/components/grid/BattleGrid.tsx` + `GridTile.tsx` + `drift.css`: rendering of intent overlays. Three layers: ghost emoji on planned-move, pulsing orange AOE shape, element badge on enemy.
+- `src/sim/strategies.ts`: added `buildTelegraphedTiles` + `isTileTelegraphed`, replaced `chooseMoveToward` with `chooseMoveTowardSafe` for `GreedyDamage` and `CascadeBuilder` (penalize stepping into telegraphed tiles, reward stepping out of them). New `Dodger` strategy that explicitly prioritizes safety over aggression.
+
+### Sim shift (200 games × 4 comps × 6 strategies = 4800 games)
+
+| Strategy | Pre-telegraphs | Post-telegraphs | Δ |
+| --- | --- | --- | --- |
+| GreedyDamage | 98% | 100% | +2 |
+| CascadeBuilder | 33% | 99% | **+66** |
+| WallSpammer | 11% | 11% | 0 |
+| WindRider | 74% | 99% | +25 |
+| Dodger (new) | — | 100% | new |
+
+| Signal | Pre | Post | Note |
+| --- | --- | --- | --- |
+| Avg game length | 5.00 turns | **7.08** | +2 — more decisions, deeper games |
+| Player-authored cascade % | 22% | 37% | up — players have more time to set up |
+| Big spells/game | 5.02 | 6.40 | up — more turns means more big spells |
+| Cascade dmg % | 22% | 33% | up — cascades are more effective when player can spread to avoid backsplash |
+
+**Verdict still `DOMINANT (GreedyDamage)`** but the underlying picture is much healthier: three strategies now hit 99-100% (GreedyDamage, CascadeBuilder, WindRider, Dodger). The dominance flag fires because GreedyDamage hits ≥70%, but in practice the top strategies are tied. Pairwise spread is 0.353 (within-condition std dev), condition diversity 0.022 — meaning the matchups don't differentiate strategies much. With four strategies clustered at the top, the bottleneck isn't strategy choice — it's enemy threat.
+
+### Why telegraphs help the player so much in sim
+
+The AI player can now route around damage that previously was unavoidable. Cascades are more effective because the player can spread without losing tempo (no need to clump for cascade-builder positioning when you can predict and counter the AOE). The enemy AI is still using its old greedy heuristic but now it commits a turn ahead, giving the player a free read on every threat.
+
+### Tuning options if dominance bothers playtest
+
+The expected outcome was "telegraphs help the player more than they help the enemy because the enemy AI is reactive." That's exactly what happened. To re-tighten:
+
+1. **Buff enemy abilities.** Storm Sprite's Sparkbolt/Thundercrack damage could go up by 1 to make missed dodges hurt more. Currently a missed dodge costs ~2 HP; bumping that to 3-4 makes telegraphs an actual life-or-death decision.
+2. **Multi-threat telegraphs.** Have enemies sometimes commit to AOE-around-self instead of single-target lines, making spread-positioning less universally optimal.
+3. **Smarter enemy intent.** The enemy AI currently picks "highest damage ability that's in range." Smarter: anticipate where the player WILL be (closest player + their next likely move), commit AOE to that predicted spot. Makes telegraphs less trivially dodge-able.
+4. **Faster-rotating wind.** Wind already rotates every turn but enemy intent is committed *before* wind rotates — fire-spread telegraphs assume current wind, can be made to factor in rotation.
+
+**Recommendation:** Option 1 (enemy damage +1 across the board) is the cleanest first tuning lever. It doesn't change the dodge mechanic; it just makes failed dodges hurt more, which should pull GreedyDamage win-rate back down by raising the cost of clumping and aggressive positioning. Don't ship yet — let the user feel the playtest first; the qualitative win (anticipation gameplay) might already be the real point.
+
+### Open playtest questions
+
+- Does the telegraph UI clarity match the spec? (Three layers — ghost, AOE highlight, badge — might be too noisy on a 5×5 grid.)
+- Does the dodge mechanic feel rewarding, or do enemies just always reposition next turn to retarget the moved character?
+- Are turn 1 telegraphs surprising? Players see threats before they've even drawn cards on the very first decision — does that feel cool or jarring?
+- Is the "kill cancels intent" mechanic visible enough? When a player kills a telegraphed enemy, does the player notice that the orange tiles vanished, or does it happen too quietly?
+- Are 7-turn games more fun than 5-turn games, or do they drag?
+

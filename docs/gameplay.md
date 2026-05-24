@@ -33,7 +33,7 @@ So a Lightning 1 card on Stormcaller becomes Power 3 — enough for Thundercrack
 
 | Char | Element | HP | Move | Power 1 ability | Power 3 ability |
 | --- | --- | --- | --- | --- | --- |
-| Tidecaller 🌊 | water | 8 | 2 | **Splash** — water tile (range 3) | **Torrent** — 3-tile water line |
+| Tidecaller 🌊 | water | 8 | 2 | **Splash** — water tile + 1 dmg | **Torrent** — 3-tile water line + 1 dmg/tile |
 | Pyromancer 🔥 | fire | 7 | 2 | **Ember** — fire tile + 1 dmg | **Inferno** — 2x2 fire + 1 dmg |
 | Stormcaller ⚡ | lightning | 7 | 3 | **Sparkbolt** — lightning tile + 1 dmg | **Thundercrack** — 2x2 lightning + 2 dmg |
 
@@ -43,7 +43,7 @@ So a Lightning 1 card on Stormcaller becomes Power 3 — enough for Thundercrack
 | --- | --- | --- | --- | --- |
 | Storm Sprite ⚡ | lightning | 6 | 3 | Mirrors Stormcaller. The threat. |
 | Ember Wisp 👻 | fire | 6 | 2 | Mirrors Pyromancer. Chip + cascade primer. |
-| Tide Spirit 🐚 | water | 8 | 1 | Mirrors Tidecaller. No direct damage, slow. |
+| Tide Spirit 🐚 | water | 8 | 1 | Mirrors Tidecaller. Low chip damage, slow. |
 
 ## Card assignment heuristic
 
@@ -59,7 +59,7 @@ The character with the highest Power acts first. Use this to land setups before 
 
 ## Two damage paths
 
-**Path 1: Direct damage.** Stormcaller's Thundercrack at 2 dmg × up to 4 tiles = up to 8 damage if you catch a clump. Even on a single enemy it's 2 dmg, which equals one-third of a Storm Sprite's HP. Sparkbolt is your 1-Power filler when you can't afford Thundercrack. Pyromancer's Inferno is 1 AOE chip; Ember is single-target chip. This is the "stack hits, win fast" path.
+**Path 1: Direct damage.** Stormcaller's Thundercrack at 2 dmg × up to 4 tiles = up to 8 damage if you catch a clump. Even on a single enemy it's 2 dmg, which equals one-third of a Storm Sprite's HP. Sparkbolt is your 1-Power filler when you can't afford Thundercrack. Pyromancer's Inferno is 1 AOE chip; Ember is single-target chip. Tidecaller's Splash also chips for 1 — useful when she's the last one standing. This is the "stack hits, win fast" path.
 
 **Path 2: Cascades.** Place two reactive elements adjacent and they detonate during the cascade phase:
 
@@ -107,3 +107,23 @@ The current dominant sim strategy is **GreedyDamage** (88% of wins) — relentle
 - **AI doesn't dodge splash.** It greedily casts and eats its own cascade backsplash. You can route out of splash zones every turn for free.
 - **AI doesn't match elements deliberately** during assignment. It picks the highest card regardless. You consciously matching = more big-Power turns than the sim shows.
 - **AI doesn't herd enemies into kill zones.** A 2x2 plasma in a corner with both Storm Sprites adjacent is humans-only level of play.
+
+## Telegraphs
+
+Every turn, before you act, each living enemy has already committed to a planned move and a planned ability. You see those plans on the grid:
+
+- A faint, blinking ghost of the enemy on the tile they intend to walk to.
+- A pulsing orange highlight + element glyph on every tile their next ability will hit (the full AOE shape, not just the targeted tile).
+- A small element badge on the enemy itself indicating which ability they'll cast.
+
+Two ways to neutralize a telegraphed attack:
+
+1. **Kill the enemy** during your own turn. The intent disappears the moment they fall.
+2. **Step off the targeted tile.** Once committed, the ability fires at the **tile**, not the unit — if no one's standing there when it resolves, the spell hits empty ground and the log will say *"X's Y hits empty ground — dodged."*
+
+What this changes about play:
+
+- **Clumping is punished.** A telegraphed Sparkbolt on a tile where two of your characters stand will hit both of them. Spread before they cast.
+- **Movement comes first.** Your highest-Power character should usually move first, not cast first — clear the splash zones, *then* pick whichever ability still makes sense from the new position.
+- **Range matters now.** If an enemy can only hit a 1-tile zone, it's much easier to dodge than a 4-tile plasma AOE — but enemies with shorter range will close in to plant their telegraph on top of you. Backing up is a real lever.
+- **Power's "act first" benefit shrinks.** Telegraphs let you plan the whole turn at once; turn order matters less for reactive purposes and more for hit-stacking on the same target.

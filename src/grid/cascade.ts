@@ -8,7 +8,7 @@ import type {
   Tile,
 } from './types'
 
-interface CascadeReaction {
+export interface CascadeReaction {
   type: ReactionType
   primaryElement: Element
   secondaryElement: Element
@@ -18,6 +18,17 @@ interface CascadeReaction {
   damage: number
 }
 
+export type CascadeDamageZone = 'primary' | 'splash'
+export type CascadeDamageMultiplier = 'full' | 'half' | 'quarter'
+
+export interface CascadeDamageEvent {
+  characterId: string
+  amount: number
+  reaction: CascadeReaction
+  zone: CascadeDamageZone
+  multiplier: CascadeDamageMultiplier
+}
+
 function halve(n: number): number {
   return Math.max(1, Math.floor(n / 2))
 }
@@ -25,8 +36,7 @@ function halve(n: number): number {
 interface CascadeResult {
   grid: Tile[][]
   reactions: CascadeReaction[]
-  damageEvents: Array<{ characterId: string; amount: number; reactionType: ReactionType }>
-  events: string[]
+  damageEvents: CascadeDamageEvent[]
 }
 
 const NEIGHBORS: Array<{ dx: number; dy: number }> = [
@@ -166,11 +176,10 @@ export function resolveCascades(
 ): CascadeResult {
   const grid = cloneGrid(inputGrid)
   const { reactions, involvedKeys } = detectCascades(grid)
-  const damageEvents: Array<{ characterId: string; amount: number; reactionType: ReactionType }> = []
-  const events: string[] = []
+  const damageEvents: CascadeDamageEvent[] = []
 
   if (reactions.length === 0) {
-    return { grid, reactions, damageEvents, events }
+    return { grid, reactions, damageEvents }
   }
 
   for (const reaction of reactions) {
@@ -180,46 +189,44 @@ export function resolveCascades(
       for (const character of characters) {
         if (character.currentHp <= 0) continue
         const key = `${character.position.x},${character.position.y}`
-        let amount = 0
         if (primarySet.has(key)) {
           // Primary tile: enemies take full, players take half (friendly fire)
-          amount = character.isPlayer ? halve(reaction.damage) : reaction.damage
-        } else if (splashSet.has(key) && character.isPlayer) {
-          // Splash radius: only damages allies (asymmetric). Reactions echo
-          // back toward the team that built the kill zone — quarter damage.
-          amount = halve(halve(reaction.damage))
-        }
-        if (amount > 0) {
+          const amount = character.isPlayer ? halve(reaction.damage) : reaction.damage
           damageEvents.push({
             characterId: character.id,
             amount,
-            reactionType: reaction.type,
+            reaction,
+            zone: 'primary',
+            multiplier: character.isPlayer ? 'half' : 'full',
+          })
+        } else if (splashSet.has(key) && character.isPlayer) {
+          // Splash radius: only damages allies (asymmetric) — quarter damage.
+          damageEvents.push({
+            characterId: character.id,
+            amount: halve(halve(reaction.damage)),
+            reaction,
+            zone: 'splash',
+            multiplier: 'quarter',
           })
         }
       }
-      events.push(
-        reaction.type === 'electrified'
-          ? `Electrified! ${reaction.primaryTiles.length}-tile water chain shocks for ${reaction.damage}.`
-          : `Plasma! ${reaction.primaryTiles.length}-tile fire chain ignites for ${reaction.damage}.`,
-      )
     } else if (reaction.type === 'shatter') {
       const splashSet = new Set(reaction.splashTiles.map((p) => `${p.x},${p.y}`))
       for (const character of characters) {
         if (character.currentHp <= 0) continue
         const key = `${character.position.x},${character.position.y}`
         if (splashSet.has(key)) {
-          const amount = character.isPlayer ? halve(reaction.damage) : reaction.damage
           damageEvents.push({
             characterId: character.id,
-            amount,
-            reactionType: reaction.type,
+            amount: character.isPlayer ? halve(reaction.damage) : reaction.damage,
+            reaction,
+            zone: 'splash',
+            multiplier: character.isPlayer ? 'half' : 'full',
           })
         }
       }
-      events.push(`Shatter! Earth shears apart, dealing ${reaction.damage} to adjacent.`)
-    } else if (reaction.type === 'steam') {
-      events.push(`Steam! ${reaction.primaryTiles.length + reaction.secondaryTiles.length} tiles obscured.`)
     }
+    // steam: no damage events; engine emits no log entry for fizzle
   }
 
   for (const key of involvedKeys) {
@@ -229,12 +236,12 @@ export function resolveCascades(
     grid[y][x].terrain = null
   }
 
-  return { grid, reactions, damageEvents, events }
+  return { grid, reactions, damageEvents }
 }
 
 export function applyDamageEvents(
   characters: GridCharacter[],
-  events: Array<{ characterId: string; amount: number; reactionType: ReactionType }>,
+  events: Array<{ characterId: string; amount: number }>,
 ): GridCharacter[] {
   const totals = new Map<string, number>()
   for (const event of events) {

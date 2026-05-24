@@ -1,4 +1,5 @@
-import { GRID_HEIGHT, GRID_WIDTH } from '../../grid/constants'
+import { ELEMENT_ICONS, GRID_HEIGHT, GRID_WIDTH } from '../../grid/constants'
+import { expandShape } from '../../grid/engine'
 import type { BattleState, BonusKind, LogDetail, Position } from '../../grid/types'
 import { GridTile, type ReplayHighlight } from './GridTile'
 
@@ -67,6 +68,51 @@ export function BattleGrid({
     bonusByPos.set(`${b.position.x},${b.position.y}`, b.kind)
   }
 
+  const showTelegraphs = state.phase === 'assign' || state.phase === 'action'
+  const intentMoveByPos = new Map<string, { emoji: string; tooltip: string }>()
+  const intentTargetByPos = new Map<string, { icon: string; tooltip: string }>()
+  const intentBadgeByEnemyId = new Map<string, { icon: string; tooltip: string }>()
+
+  if (showTelegraphs) {
+    for (const intent of state.enemyIntents ?? []) {
+      const enemy = state.enemyChars.find((e) => e.id === intent.enemyId)
+      if (!enemy || enemy.currentHp <= 0) continue
+
+      const postMovePos = intent.plannedMove ?? enemy.position
+      const movedTo = intent.plannedMove
+      const abilityRef = intent.plannedAbility
+        ? enemy.abilities.find((a) => a.id === intent.plannedAbility!.abilityId)
+        : null
+
+      if (movedTo) {
+        const key = `${movedTo.x},${movedTo.y}`
+        intentMoveByPos.set(key, {
+          emoji: enemy.emoji,
+          tooltip: `${enemy.name} will move here`,
+        })
+      }
+
+      if (abilityRef && intent.plannedAbility) {
+        const tiles = expandShape(
+          intent.plannedAbility.targetTile,
+          abilityRef.shape,
+          postMovePos,
+        ).filter(
+          (t) => t.x >= 0 && t.x < GRID_WIDTH && t.y >= 0 && t.y < GRID_HEIGHT,
+        )
+        const tooltip = `${enemy.name} will cast ${abilityRef.name} here next`
+        const icon = ELEMENT_ICONS[abilityRef.element]
+        for (const t of tiles) {
+          intentTargetByPos.set(`${t.x},${t.y}`, { icon, tooltip })
+        }
+        intentBadgeByEnemyId.set(intent.enemyId, {
+          icon,
+          tooltip: `Next: ${abilityRef.name}`,
+        })
+      }
+    }
+  }
+
   const rows: React.ReactElement[] = []
   for (let y = 0; y < GRID_HEIGHT; y++) {
     const cells: React.ReactElement[] = []
@@ -85,6 +131,10 @@ export function BattleGrid({
         else replayHighlight = 'dimmed'
       }
 
+      const intentMove = intentMoveByPos.get(key) ?? null
+      const intentTarget = intentTargetByPos.get(key) ?? null
+      const intentBadge = character ? intentBadgeByEnemyId.get(character.id) ?? null : null
+
       cells.push(
         <GridTile
           key={key}
@@ -97,6 +147,9 @@ export function BattleGrid({
           flashing={flashSet.has(key)}
           replayHighlight={replayHighlight}
           bonusKind={bonusKind}
+          intentMove={intentMove}
+          intentTarget={intentTarget}
+          intentBadge={intentBadge}
           onClick={() => onTileClick({ x, y })}
         />,
       )

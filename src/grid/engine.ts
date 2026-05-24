@@ -12,7 +12,12 @@ import {
   TERRAIN_LIFETIME,
   WIND_ROTATION,
 } from './constants'
-import { applyDamageEvents, resolveCascades } from './cascade'
+import {
+  applyDamageEvents,
+  resolveCascades,
+  type CascadeDamageEvent,
+  type CascadeReaction,
+} from './cascade'
 import { applyFlow, cloneGrid, decrementTerrain } from './flow'
 import { defaultRandom, type Random } from './random'
 import type {
@@ -21,6 +26,7 @@ import type {
   BattleState,
   BonusTile,
   Card,
+  EnemyIntent,
   GridCharacter,
   LogDetail,
   LogEntry,
@@ -43,6 +49,76 @@ function appendLog(
     result.push({ ...e, id: `e${result.length}` })
   }
   return result
+}
+
+const REACTION_LABEL: Record<CascadeReaction['type'], string> = {
+  electrified: 'electrified',
+  plasma: 'plasma',
+  shatter: 'shatter',
+  steam: 'steam',
+}
+
+function shapeLabel(shape: AbilityShape): string {
+  switch (shape) {
+    case 'single':
+      return 'single tile'
+    case 'line2':
+      return '2-tile line'
+    case 'line3':
+      return '3-tile line'
+    case 'plus':
+      return '+ shape'
+    case 'square2x2':
+      return '2x2 AOE'
+  }
+}
+
+function pluralizeTiles(n: number): string {
+  return `${n} tile${n === 1 ? '' : 's'}`
+}
+
+function buildAbilityDamageMessage(
+  victim: GridCharacter,
+  actor: GridCharacter,
+  ability: Ability,
+  amount: number,
+  tilesAffected: number,
+): string {
+  return `${victim.name} took ${amount} damage from ${actor.name}'s ${ability.name} (${ability.element} ${shapeLabel(ability.shape)}, ${pluralizeTiles(tilesAffected)}).`
+}
+
+function buildCascadeDamageMessage(event: CascadeDamageEvent, victim: GridCharacter): string {
+  const { reaction, zone, multiplier, amount } = event
+  const label = REACTION_LABEL[reaction.type]
+  const elements = `${reaction.primaryElement}+${reaction.secondaryElement}`
+  const chainSize = reaction.primaryTiles.length
+  const base = reaction.damage
+  if (zone === 'primary') {
+    if (multiplier === 'half') {
+      return `${victim.name} took ${amount} damage from ${label} (${elements}, ${chainSize}-tile chain dealing ${base}, halved for friendly fire = ${amount}).`
+    }
+    return `${victim.name} took ${amount} damage from ${label} (${elements}, ${chainSize}-tile chain dealing ${base}).`
+  }
+  if (multiplier === 'quarter') {
+    return `${victim.name} took ${amount} damage from ${label} splash (${elements}, ${base} base × ¼ = ${amount}).`
+  }
+  if (multiplier === 'half') {
+    return `${victim.name} took ${amount} damage from ${label} splash (${elements}, ${base} base, halved for friendly fire = ${amount}).`
+  }
+  return `${victim.name} took ${amount} damage from ${label} splash (${elements}, dealing ${base}).`
+}
+
+function findDeaths(
+  before: GridCharacter[],
+  after: GridCharacter[],
+): GridCharacter[] {
+  const beforeHp = new Map(before.map((c) => [c.id, c.currentHp]))
+  const dead: GridCharacter[] = []
+  for (const c of after) {
+    const prevHp = beforeHp.get(c.id) ?? 0
+    if (prevHp > 0 && c.currentHp <= 0) dead.push(c)
+  }
+  return dead
 }
 
 function emptyGrid(): Tile[][] {
@@ -201,9 +277,11 @@ export function createInitialState(options: InitialStateOptions = {}): BattleSta
     selectedAction: null,
     pendingFlash: null,
     bonusTiles,
+    enemyIntents: [],
   }
 
-  return drawCards(initial, HAND_SIZE, rng)
+  const drawn = drawCards(initial, HAND_SIZE, rng)
+  return { ...drawn, enemyIntents: planAllEnemyIntents(drawn) }
 }
 
 export function assignCard(state: BattleState, characterId: string, cardId: string): BattleState {
@@ -327,9 +405,6 @@ export function moveCharacter(state: BattleState, target: Position): BattleState
   const moved: BattleState = {
     ...state,
     playerChars,
-    log: appendLog(state, [
-      makeLogEntry(state.turnNumber, `${actor.name} moves to (${target.x}, ${target.y}).`),
-    ]),
   }
   return tryClaimBonus(moved, actor.id)
 }
@@ -493,25 +568,47 @@ function resolveAbilityOnGrid(
     return next
   })
 
-  const detail: LogDetail = {
-    kind: 'ability',
-    actorId: actor.id,
-    abilityId: ability.id,
-    element: ability.element,
-    tiles: tiles.map((t) => ({ x: t.x, y: t.y })),
-    damagedCharIds: [...damaged.keys()],
+  const tilePositions = tiles.map((t) => ({ x: t.x, y: t.y }))
+  const charById = new Map<string, GridCharacter>()
+  for (const c of [...state.playerChars, ...state.enemyChars]) charById.set(c.id, c)
+
+  const logEntries: Array<Omit<LogEntry, 'id'>> = []
+  for (const [charId, amount] of damaged) {
+    const victim = charById.get(charId)
+    if (!victim) continue
+    const perDetail: LogDetail = {
+      kind: 'ability',
+      actorId: actor.id,
+      abilityId: ability.id,
+      element: ability.element,
+      tiles: tilePositions,
+      damagedCharIds: [charId],
+    }
+    logEntries.push(
+      makeLogEntry(
+        state.turnNumber,
+        buildAbilityDamageMessage(victim, actor, ability, amount, tiles.length),
+        perDetail,
+      ),
+    )
   }
 
-  return {
+  for (const dead of findDeaths(state.playerChars, playerChars)) {
+    logEntries.push(makeLogEntry(state.turnNumber, `${dead.name} is defeated.`))
+  }
+  for (const dead of findDeaths(state.enemyChars, enemyChars)) {
+    logEntries.push(makeLogEntry(state.turnNumber, `${dead.name} is defeated.`))
+  }
+
+  const next: BattleState = {
     ...state,
     grid,
     playerChars,
     enemyChars,
     selectedAction: null,
-    log: appendLog(state, [
-      makeLogEntry(state.turnNumber, `${actor.name} casts ${ability.name}.`, detail),
-    ]),
+    log: logEntries.length ? appendLog(state, logEntries) : state.log,
   }
+  return dropDeadIntents(next)
 }
 
 export function endActorTurn(state: BattleState): BattleState {
@@ -531,22 +628,35 @@ export function runEnemyTurn(state: BattleState): BattleState {
   if (state.phase !== 'enemy') return state
   let working: BattleState = { ...state }
 
-  const livingEnemies = working.enemyChars.filter((e) => e.currentHp > 0)
-  for (const enemy of livingEnemies) {
-    working = simulateEnemyAction(working, enemy.id)
+  for (const intent of state.enemyIntents) {
+    const enemy = working.enemyChars.find((e) => e.id === intent.enemyId)
+    if (!enemy || enemy.currentHp <= 0) continue
+    working = executeEnemyIntent(working, intent)
   }
 
   return { ...working, phase: 'flow' }
 }
 
-function simulateEnemyAction(state: BattleState, enemyId: string): BattleState {
-  const enemyIdx = state.enemyChars.findIndex((e) => e.id === enemyId)
-  if (enemyIdx < 0) return state
-  const enemy = state.enemyChars[enemyIdx]
-  if (enemy.currentHp <= 0) return state
+function tileBlockedForEnemy(state: BattleState, enemyId: string, p: Position): boolean {
+  if (p.x < 0 || p.x >= GRID_WIDTH || p.y < 0 || p.y >= GRID_HEIGHT) return true
+  const occupied = [...state.playerChars, ...state.enemyChars].some(
+    (c) => c.id !== enemyId && c.currentHp > 0 && c.position.x === p.x && c.position.y === p.y,
+  )
+  if (occupied) return true
+  if (state.grid[p.y]?.[p.x]?.terrain?.element === 'earth') return true
+  return false
+}
+
+export function planEnemyIntent(state: BattleState, enemyId: string): EnemyIntent {
+  const enemy = state.enemyChars.find((e) => e.id === enemyId)
+  if (!enemy || enemy.currentHp <= 0) {
+    return { enemyId, plannedMove: null, plannedAbility: null }
+  }
 
   const livingPlayers = state.playerChars.filter((p) => p.currentHp > 0)
-  if (livingPlayers.length === 0) return state
+  if (livingPlayers.length === 0) {
+    return { enemyId, plannedMove: null, plannedAbility: null }
+  }
 
   let nearest = livingPlayers[0]
   let nearestDist = Infinity
@@ -558,67 +668,116 @@ function simulateEnemyAction(state: BattleState, enemyId: string): BattleState {
     }
   }
 
-  let working: BattleState = state
   const dxAxis = Math.sign(nearest.position.x - enemy.position.x)
   const dyAxis = Math.sign(nearest.position.y - enemy.position.y)
   const moveSteps = Math.min(enemy.movementBudget, Math.max(1, nearestDist - 2))
+
+  let simPos: Position = enemy.position
   for (let i = 0; i < moveSteps; i++) {
-    const cur = working.enemyChars[enemyIdx]
-    if (!cur || cur.currentHp <= 0) break
     const candidates = [
-      { x: cur.position.x + dxAxis, y: cur.position.y },
-      { x: cur.position.x, y: cur.position.y + dyAxis },
-      { x: cur.position.x + dxAxis, y: cur.position.y + dyAxis },
-    ].filter(
-      (p) =>
-        p.x >= 0 &&
-        p.x < GRID_WIDTH &&
-        p.y >= 0 &&
-        p.y < GRID_HEIGHT &&
-        ![...working.playerChars, ...working.enemyChars].some(
-          (c) => c.currentHp > 0 && c.position.x === p.x && c.position.y === p.y,
-        ) &&
-        !(working.grid[p.y]?.[p.x]?.terrain?.element === 'earth'),
-    )
+      { x: simPos.x + dxAxis, y: simPos.y },
+      { x: simPos.x, y: simPos.y + dyAxis },
+      { x: simPos.x + dxAxis, y: simPos.y + dyAxis },
+    ].filter((p) => !tileBlockedForEnemy(state, enemyId, p))
     if (candidates.length === 0) break
-    const chosen = candidates[0]
-    working = {
-      ...working,
-      enemyChars: working.enemyChars.map((e) =>
-        e.id === enemyId ? { ...e, position: chosen, hasMoved: true } : e,
-      ),
-      log: appendLog(working, [makeLogEntry(working.turnNumber, `${enemy.name} advances.`)]),
-    }
-    working = tryClaimBonus(working, enemyId)
+    simPos = candidates[0]
   }
 
-  const enemyNow = working.enemyChars[enemyIdx]
-  if (!enemyNow || enemyNow.currentHp <= 0) return working
+  const plannedMove =
+    simPos.x === enemy.position.x && simPos.y === enemy.position.y ? null : simPos
 
   const playerTarget = livingPlayers.reduce(
     (best, p) => {
-      const d = Math.abs(p.position.x - enemyNow.position.x) + Math.abs(p.position.y - enemyNow.position.y)
+      const d = Math.abs(p.position.x - simPos.x) + Math.abs(p.position.y - simPos.y)
       return d < best.dist ? { p, dist: d } : best
     },
     { p: livingPlayers[0], dist: Infinity },
   )
 
-  const usableAbilities = enemyNow.abilities
+  const usableAbilities = enemy.abilities
     .filter((a) => a.manaCost <= 3)
     .sort((a, b) => b.damage - a.damage)
 
+  let plannedAbility: EnemyIntent['plannedAbility'] = null
   for (const ability of usableAbilities) {
     if (ability.range >= playerTarget.dist) {
-      const enemyAsActor = { ...enemyNow, mana: ability.manaCost }
+      const targetTile = ability.selfTarget ? simPos : playerTarget.p.position
+      plannedAbility = { abilityId: ability.id, targetTile }
+      break
+    }
+  }
+
+  return { enemyId, plannedMove, plannedAbility }
+}
+
+export function planAllEnemyIntents(state: BattleState): EnemyIntent[] {
+  return state.enemyChars
+    .filter((e) => e.currentHp > 0)
+    .map((e) => planEnemyIntent(state, e.id))
+}
+
+export function dropDeadIntents(state: BattleState): BattleState {
+  const livingIds = new Set(state.enemyChars.filter((e) => e.currentHp > 0).map((e) => e.id))
+  if (state.enemyIntents.every((i) => livingIds.has(i.enemyId))) return state
+  return { ...state, enemyIntents: state.enemyIntents.filter((i) => livingIds.has(i.enemyId)) }
+}
+
+function executeEnemyIntent(state: BattleState, intent: EnemyIntent): BattleState {
+  const enemyIdx = state.enemyChars.findIndex((e) => e.id === intent.enemyId)
+  if (enemyIdx < 0) return state
+  const enemy = state.enemyChars[enemyIdx]
+  if (enemy.currentHp <= 0) return state
+
+  let working: BattleState = state
+
+  if (intent.plannedMove) {
+    if (!tileBlockedForEnemy(working, intent.enemyId, intent.plannedMove)) {
       working = {
         ...working,
         enemyChars: working.enemyChars.map((e) =>
-          e.id === enemyId ? enemyAsActor : e,
+          e.id === intent.enemyId
+            ? { ...e, position: intent.plannedMove!, hasMoved: true }
+            : e,
         ),
       }
-      const targetPos = ability.selfTarget ? enemyNow.position : playerTarget.p.position
-      working = resolveAbilityOnGrid(working, enemyAsActor, ability, targetPos, 'enemy')
-      break
+      working = tryClaimBonus(working, intent.enemyId)
+    }
+  }
+
+  if (intent.plannedAbility) {
+    const enemyNow = working.enemyChars.find((e) => e.id === intent.enemyId)
+    if (!enemyNow || enemyNow.currentHp <= 0) return working
+    const ability = enemyNow.abilities.find((a) => a.id === intent.plannedAbility!.abilityId)
+    if (!ability) return working
+
+    const targetTile = intent.plannedAbility.targetTile
+    const enemyAsActor = { ...enemyNow, mana: ability.manaCost }
+    working = {
+      ...working,
+      enemyChars: working.enemyChars.map((e) =>
+        e.id === intent.enemyId ? enemyAsActor : e,
+      ),
+    }
+
+    const tilesBefore = expandShape(targetTile, ability.shape, enemyAsActor.position).filter(
+      (t) => t.x >= 0 && t.x < GRID_WIDTH && t.y >= 0 && t.y < GRID_HEIGHT,
+    )
+    const wouldHit =
+      ability.damage > 0 &&
+      tilesBefore.some((t) =>
+        working.playerChars.some(
+          (p) => p.currentHp > 0 && p.position.x === t.x && p.position.y === t.y,
+        ),
+      )
+
+    working = resolveAbilityOnGrid(working, enemyAsActor, ability, targetTile, 'enemy')
+
+    if (ability.damage > 0 && !wouldHit) {
+      const dodgeMessage = `${enemyNow.name}'s ${ability.name} hits empty ground — dodged.`
+      working = {
+        ...working,
+        log: appendLog(working, [makeLogEntry(working.turnNumber, dodgeMessage)]),
+      }
     }
   }
 
@@ -628,13 +787,10 @@ function simulateEnemyAction(state: BattleState, enemyId: string): BattleState {
 export function applyFlowPhase(state: BattleState): BattleState {
   if (state.phase !== 'flow') return state
   const allChars = [...state.playerChars, ...state.enemyChars]
-  const { grid, events } = applyFlow(state.grid, state.wind, allChars)
+  const { grid } = applyFlow(state.grid, state.wind, allChars)
   return {
     ...state,
     grid,
-    log: events.length
-      ? appendLog(state, events.map((msg) => makeLogEntry(state.turnNumber, msg)))
-      : state.log,
     phase: 'cascade',
   }
 }
@@ -642,7 +798,11 @@ export function applyFlowPhase(state: BattleState): BattleState {
 export function applyCascadePhase(state: BattleState): BattleState {
   if (state.phase !== 'cascade') return state
   const allChars = [...state.playerChars, ...state.enemyChars]
-  let { grid, damageEvents, events, reactions } = resolveCascades(state.grid, allChars)
+  const playerHpBefore = state.playerChars
+  const enemyHpBefore = state.enemyChars
+
+  let { grid, damageEvents, reactions } = resolveCascades(state.grid, allChars)
+  let allDamageEvents: CascadeDamageEvent[] = [...damageEvents]
   let newPlayerChars = applyDamageEvents(state.playerChars, damageEvents)
   let newEnemyChars = applyDamageEvents(state.enemyChars, damageEvents)
 
@@ -654,48 +814,63 @@ export function applyCascadePhase(state: BattleState): BattleState {
     const {
       grid: g2,
       damageEvents: d2,
-      events: e2,
       reactions: r2,
     } = resolveCascades(grid, [...newPlayerChars, ...newEnemyChars])
     if (r2.length === 0) break
     grid = g2
     newPlayerChars = applyDamageEvents(newPlayerChars, d2)
     newEnemyChars = applyDamageEvents(newEnemyChars, d2)
-    events = [...events, ...e2]
     reactions = [...reactions, ...r2]
+    allDamageEvents = [...allDamageEvents, ...d2]
   }
 
   let nextPhase: BattleState['phase'] = 'cleanup'
   if (newPlayerChars.every((c) => c.currentHp <= 0)) nextPhase = 'defeat'
   else if (newEnemyChars.every((c) => c.currentHp <= 0)) nextPhase = 'victory'
 
-  // Build LogEntries with cascade detail. events[i] corresponds 1:1 with reactions[i]
-  // (cascade.ts pushes one event string per reaction in the same iteration order).
+  // Build per-character damage entries grouped by reaction. Each reaction's
+  // damage events keep an identity reference back to the reaction object,
+  // so multiple cascades of the same type in one phase don't blur together.
+  const charById = new Map<string, GridCharacter>()
+  for (const c of [...newPlayerChars, ...newEnemyChars]) charById.set(c.id, c)
+
   const logEntries: Array<Omit<LogEntry, 'id'>> = []
-  for (let i = 0; i < events.length; i++) {
-    const message = events[i]
-    const reaction = reactions[i]
-    if (!reaction) {
-      logEntries.push(makeLogEntry(state.turnNumber, message))
-      continue
+  for (const reaction of reactions) {
+    const reactionEvents = allDamageEvents.filter((d) => d.reaction === reaction)
+    if (reactionEvents.length === 0) continue
+    for (const ev of reactionEvents) {
+      const victim = charById.get(ev.characterId)
+      if (!victim) continue
+      const perDetail: LogDetail = {
+        kind: 'cascade',
+        reactionType: reaction.type,
+        primaryElement: reaction.primaryElement,
+        secondaryElement: reaction.secondaryElement,
+        primaryTiles: reaction.primaryTiles.map((p) => ({ x: p.x, y: p.y })),
+        secondaryTiles: reaction.secondaryTiles.map((p) => ({ x: p.x, y: p.y })),
+        splashTiles: reaction.splashTiles.map((p) => ({ x: p.x, y: p.y })),
+        damagedCharIds: [ev.characterId],
+      }
+      logEntries.push(
+        makeLogEntry(state.turnNumber, buildCascadeDamageMessage(ev, victim), perDetail),
+      )
     }
-    const damagedCharIds = damageEvents
-      .filter((d) => d.reactionType === reaction.type)
-      .map((d) => d.characterId)
-    const detail: LogDetail = {
-      kind: 'cascade',
-      reactionType: reaction.type,
-      primaryElement: reaction.primaryElement,
-      secondaryElement: reaction.secondaryElement,
-      primaryTiles: reaction.primaryTiles.map((p) => ({ x: p.x, y: p.y })),
-      secondaryTiles: reaction.secondaryTiles.map((p) => ({ x: p.x, y: p.y })),
-      splashTiles: reaction.splashTiles.map((p) => ({ x: p.x, y: p.y })),
-      damagedCharIds: [...new Set(damagedCharIds)],
-    }
-    logEntries.push(makeLogEntry(state.turnNumber, message, detail))
   }
 
-  return {
+  for (const dead of findDeaths(playerHpBefore, newPlayerChars)) {
+    logEntries.push(makeLogEntry(state.turnNumber, `${dead.name} is defeated.`))
+  }
+  for (const dead of findDeaths(enemyHpBefore, newEnemyChars)) {
+    logEntries.push(makeLogEntry(state.turnNumber, `${dead.name} is defeated.`))
+  }
+
+  if (nextPhase === 'victory') {
+    logEntries.push(makeLogEntry(state.turnNumber, 'Victory! All enemies have fallen.'))
+  } else if (nextPhase === 'defeat') {
+    logEntries.push(makeLogEntry(state.turnNumber, 'Defeat. All player characters have fallen.'))
+  }
+
+  const next: BattleState = {
     ...state,
     grid,
     playerChars: newPlayerChars,
@@ -714,6 +889,7 @@ export function applyCascadePhase(state: BattleState): BattleState {
         }
       : null,
   }
+  return dropDeadIntents(next)
 }
 
 export function applyCleanupPhase(state: BattleState, rng: Random = defaultRandom): BattleState {
@@ -738,5 +914,5 @@ export function applyCleanupPhase(state: BattleState, rng: Random = defaultRando
   }
 
   nextState = drawCards(nextState, HAND_SIZE, rng)
-  return nextState
+  return { ...nextState, enemyIntents: planAllEnemyIntents(nextState) }
 }

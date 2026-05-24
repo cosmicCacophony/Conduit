@@ -115,6 +115,15 @@ export interface BonusTile {
   position: Position
 }
 
+export interface EnemyIntent {
+  enemyId: string
+  plannedMove: Position | null
+  plannedAbility: {
+    abilityId: string
+    targetTile: Position
+  } | null
+}
+
 export interface BattleState {
   grid: Tile[][]
   width: number
@@ -135,4 +144,5 @@ export interface BattleState {
   selectedAction: SelectedAction | null
   pendingFlash: FlashEffect | null
   bonusTiles: BonusTile[]
+  enemyIntents: EnemyIntent[]
 }
