@@ -1,10 +1,14 @@
 import { useEffect, useRef } from 'react'
 
+import type { LogEntry } from '../../grid/types'
+
 type TurnLogProps = {
-  log: string[]
+  log: LogEntry[]
+  hoveredEntryId: string | null
+  onHoverEntry: (id: string | null) => void
 }
 
-export function TurnLog({ log }: TurnLogProps) {
+export function TurnLog({ log, hoveredEntryId, onHoverEntry }: TurnLogProps) {
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -13,11 +17,26 @@ export function TurnLog({ log }: TurnLogProps) {
 
   return (
     <div className="turn-log" ref={ref}>
-      {log.slice(-30).map((entry, i) => (
-        <div key={i} className="turn-log__entry">
-          {entry}
-        </div>
-      ))}
+      {log.slice(-30).map((entry) => {
+        const hoverable = !!entry.detail
+        const classes = [
+          'turn-log__entry',
+          hoverable ? 'turn-log__entry--hoverable' : '',
+          hoveredEntryId === entry.id ? 'turn-log__entry--active' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')
+        return (
+          <div
+            key={entry.id}
+            className={classes}
+            onMouseEnter={hoverable ? () => onHoverEntry(entry.id) : undefined}
+            onMouseLeave={hoverable ? () => onHoverEntry(null) : undefined}
+          >
+            {entry.message}
+          </div>
+        )
+      })}
     </div>
   )
 }

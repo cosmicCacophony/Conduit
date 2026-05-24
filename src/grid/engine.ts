@@ -1,10 +1,12 @@
 import {
+  BONUS_TILES_PER_GAME,
   buildStarterDeck,
   ENEMY_TEMPLATES,
   GRID_HEIGHT,
   GRID_WIDTH,
   HAND_SIZE,
   instantiateCharacter,
+  MEND_AMOUNT,
   nextWind,
   PLAYER_TEMPLATES,
   TERRAIN_LIFETIME,
@@ -17,13 +19,31 @@ import type {
   Ability,
   AbilityShape,
   BattleState,
+  BonusTile,
   Card,
   GridCharacter,
+  LogDetail,
+  LogEntry,
   Position,
   Terrain,
   Tile,
   WindDirection,
 } from './types'
+
+function makeLogEntry(turn: number, message: string, detail?: LogDetail): Omit<LogEntry, 'id'> {
+  return detail ? { turn, message, detail } : { turn, message }
+}
+
+function appendLog(
+  state: BattleState,
+  entries: Array<Omit<LogEntry, 'id'>>,
+): LogEntry[] {
+  const result = [...state.log]
+  for (const e of entries) {
+    result.push({ ...e, id: `e${result.length}` })
+  }
+  return result
+}
 
 function emptyGrid(): Tile[][] {
   const grid: Tile[][] = []
@@ -44,6 +64,71 @@ function shuffle<T>(arr: T[], rng: Random): T[] {
     ;[out[i], out[j]] = [out[j], out[i]]
   }
   return out
+}
+
+function spawnBonusTiles(
+  rng: Random,
+  count: number,
+  excluded: Set<string>,
+): BonusTile[] {
+  // Middle 3x3 of the 5x5 grid: rows 1-3, cols 1-3.
+  const candidates: Position[] = []
+  for (let y = 1; y <= 3; y++) {
+    for (let x = 1; x <= 3; x++) {
+      const key = `${x},${y}`
+      if (excluded.has(key)) continue
+      candidates.push({ x, y })
+    }
+  }
+  const shuffled = shuffle(candidates, rng)
+  return shuffled.slice(0, count).map((position) => ({
+    kind: 'mend' as const,
+    position,
+  }))
+}
+
+function tryClaimBonus(state: BattleState, characterId: string): BattleState {
+  if (state.bonusTiles.length === 0) return state
+  const allChars = [...state.playerChars, ...state.enemyChars]
+  const char = allChars.find((c) => c.id === characterId)
+  if (!char || char.currentHp <= 0) return state
+  const bonus = state.bonusTiles.find(
+    (b) => b.position.x === char.position.x && b.position.y === char.position.y,
+  )
+  if (!bonus) return state
+
+  if (bonus.kind === 'mend') {
+    const headroom = char.maxHp - char.currentHp
+    const healAmount = Math.min(MEND_AMOUNT, Math.max(0, headroom))
+    const playerChars =
+      healAmount > 0
+        ? state.playerChars.map((c) =>
+            c.id === characterId ? { ...c, currentHp: c.currentHp + healAmount } : c,
+          )
+        : state.playerChars
+    const enemyChars =
+      healAmount > 0
+        ? state.enemyChars.map((c) =>
+            c.id === characterId ? { ...c, currentHp: c.currentHp + healAmount } : c,
+          )
+        : state.enemyChars
+    const bonusTiles = state.bonusTiles.filter(
+      (b) => !(b.position.x === bonus.position.x && b.position.y === bonus.position.y),
+    )
+    const message =
+      healAmount > 0
+        ? `${char.name} mends (+${healAmount} HP).`
+        : `${char.name} steps on a Mend tile (already at full HP).`
+    return {
+      ...state,
+      playerChars,
+      enemyChars,
+      bonusTiles,
+      log: appendLog(state, [makeLogEntry(state.turnNumber, message)]),
+    }
+  }
+
+  return state
 }
 
 function drawCards(state: BattleState, count: number, rng: Random): BattleState {
@@ -90,6 +175,12 @@ export function createInitialState(options: InitialStateOptions = {}): BattleSta
 
   const startingWind: WindDirection = WIND_ROTATION[Math.floor(rng.next() * WIND_ROTATION.length)]
 
+  const occupied = new Set<string>()
+  for (const c of [...playerChars, ...enemyChars]) {
+    occupied.add(`${c.position.x},${c.position.y}`)
+  }
+  const bonusTiles = spawnBonusTiles(rng, BONUS_TILES_PER_GAME, occupied)
+
   const initial: BattleState = {
     grid: emptyGrid(),
     width: GRID_WIDTH,
@@ -104,11 +195,12 @@ export function createInitialState(options: InitialStateOptions = {}): BattleSta
     windQueue: [nextWind(startingWind), nextWind(nextWind(startingWind))],
     turnNumber: 1,
     phase: 'assign',
-    log: ['Battle begins. The wind picks up.'],
+    log: [{ id: 'e0', turn: 1, message: 'Battle begins. The wind picks up.' }],
     actionOrder: [],
     currentActorId: null,
     selectedAction: null,
     pendingFlash: null,
+    bonusTiles,
   }
 
   return drawCards(initial, HAND_SIZE, rng)
@@ -153,7 +245,8 @@ export function confirmAssignments(state: BattleState): BattleState {
     const card = cardById.get(cardId)
     if (!card) return character
     let mana = card.value
-    if (card.element === character.element) mana += 1
+    if (card.element === character.element) mana += 2
+    else mana = Math.max(1, mana - 1)
     return { ...character, mana, hasMoved: false, hasActed: false }
   })
 
@@ -178,7 +271,7 @@ export function confirmAssignments(state: BattleState): BattleState {
     hand: remainingHand,
     discard: newDiscard,
     assignments: {},
-    log: [...state.log, `Turn ${state.turnNumber}: actions begin.`],
+    log: appendLog(state, [makeLogEntry(state.turnNumber, `Turn ${state.turnNumber}: actions begin.`)]),
   }
 }
 
@@ -231,11 +324,14 @@ export function moveCharacter(state: BattleState, target: Position): BattleState
   const playerChars = state.playerChars.map((c) =>
     c.id === actor.id ? { ...c, position: target, hasMoved: true } : c,
   )
-  return {
+  const moved: BattleState = {
     ...state,
     playerChars,
-    log: [...state.log, `${actor.name} moves to (${target.x}, ${target.y}).`],
+    log: appendLog(state, [
+      makeLogEntry(state.turnNumber, `${actor.name} moves to (${target.x}, ${target.y}).`),
+    ]),
   }
+  return tryClaimBonus(moved, actor.id)
 }
 
 export function selectAbility(state: BattleState, abilityId: string): BattleState {
@@ -397,13 +493,24 @@ function resolveAbilityOnGrid(
     return next
   })
 
+  const detail: LogDetail = {
+    kind: 'ability',
+    actorId: actor.id,
+    abilityId: ability.id,
+    element: ability.element,
+    tiles: tiles.map((t) => ({ x: t.x, y: t.y })),
+    damagedCharIds: [...damaged.keys()],
+  }
+
   return {
     ...state,
     grid,
     playerChars,
     enemyChars,
     selectedAction: null,
-    log: [...state.log, `${actor.name} casts ${ability.name}.`],
+    log: appendLog(state, [
+      makeLogEntry(state.turnNumber, `${actor.name} casts ${ability.name}.`, detail),
+    ]),
   }
 }
 
@@ -480,8 +587,9 @@ function simulateEnemyAction(state: BattleState, enemyId: string): BattleState {
       enemyChars: working.enemyChars.map((e) =>
         e.id === enemyId ? { ...e, position: chosen, hasMoved: true } : e,
       ),
-      log: [...working.log, `${enemy.name} advances.`],
+      log: appendLog(working, [makeLogEntry(working.turnNumber, `${enemy.name} advances.`)]),
     }
+    working = tryClaimBonus(working, enemyId)
   }
 
   const enemyNow = working.enemyChars[enemyIdx]
@@ -524,7 +632,9 @@ export function applyFlowPhase(state: BattleState): BattleState {
   return {
     ...state,
     grid,
-    log: events.length ? [...state.log, ...events] : state.log,
+    log: events.length
+      ? appendLog(state, events.map((msg) => makeLogEntry(state.turnNumber, msg)))
+      : state.log,
     phase: 'cascade',
   }
 }
@@ -559,18 +669,48 @@ export function applyCascadePhase(state: BattleState): BattleState {
   if (newPlayerChars.every((c) => c.currentHp <= 0)) nextPhase = 'defeat'
   else if (newEnemyChars.every((c) => c.currentHp <= 0)) nextPhase = 'victory'
 
+  // Build LogEntries with cascade detail. events[i] corresponds 1:1 with reactions[i]
+  // (cascade.ts pushes one event string per reaction in the same iteration order).
+  const logEntries: Array<Omit<LogEntry, 'id'>> = []
+  for (let i = 0; i < events.length; i++) {
+    const message = events[i]
+    const reaction = reactions[i]
+    if (!reaction) {
+      logEntries.push(makeLogEntry(state.turnNumber, message))
+      continue
+    }
+    const damagedCharIds = damageEvents
+      .filter((d) => d.reactionType === reaction.type)
+      .map((d) => d.characterId)
+    const detail: LogDetail = {
+      kind: 'cascade',
+      reactionType: reaction.type,
+      primaryElement: reaction.primaryElement,
+      secondaryElement: reaction.secondaryElement,
+      primaryTiles: reaction.primaryTiles.map((p) => ({ x: p.x, y: p.y })),
+      secondaryTiles: reaction.secondaryTiles.map((p) => ({ x: p.x, y: p.y })),
+      splashTiles: reaction.splashTiles.map((p) => ({ x: p.x, y: p.y })),
+      damagedCharIds: [...new Set(damagedCharIds)],
+    }
+    logEntries.push(makeLogEntry(state.turnNumber, message, detail))
+  }
+
   return {
     ...state,
     grid,
     playerChars: newPlayerChars,
     enemyChars: newEnemyChars,
-    log: events.length ? [...state.log, ...events] : state.log,
+    log: logEntries.length ? appendLog(state, logEntries) : state.log,
     phase: nextPhase,
     pendingFlash: reactions.length
       ? {
           tick: Date.now(),
           kind: 'cascade',
-          positions: reactions.flatMap((r) => [...r.primaryTiles, ...r.secondaryTiles]),
+          positions: reactions.flatMap((r) => [
+            ...r.primaryTiles,
+            ...r.secondaryTiles,
+            ...r.splashTiles,
+          ]),
         }
       : null,
   }
@@ -591,7 +731,7 @@ export function applyCleanupPhase(state: BattleState, rng: Random = defaultRando
     windQueue: [upcomingWind, futureWind],
     turnNumber: state.turnNumber + 1,
     phase: 'assign',
-    log: [...state.log, `Wind shifts to the ${newWind}.`],
+    log: appendLog(state, [makeLogEntry(state.turnNumber, `Wind shifts to the ${newWind}.`)]),
     actionOrder: [],
     currentActorId: null,
     pendingFlash: null,

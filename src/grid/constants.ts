@@ -3,6 +3,9 @@ import type { Ability, Card, Element, GridCharacter, ReactionType, WindDirection
 export const GRID_WIDTH = 5
 export const GRID_HEIGHT = 5
 export const HAND_SIZE = 3
+
+export const MEND_AMOUNT = 3
+export const BONUS_TILES_PER_GAME = 3
 export const TERRAIN_LIFETIME: Record<Element, number> = {
   water: 2,
   fire: 2,
@@ -233,13 +236,13 @@ export const PLAYER_TEMPLATES: CharacterTemplate[] = [
     movementBudget: 2,
   },
   {
-    id: 'geomancer',
-    name: 'Geomancer',
-    emoji: '🪨',
-    element: 'earth',
-    maxHp: 10,
-    abilityIds: ['boulder', 'wall', 'tremor'],
-    movementBudget: 1,
+    id: 'stormcaller',
+    name: 'Stormcaller',
+    emoji: '⚡',
+    element: 'lightning',
+    maxHp: 7,
+    abilityIds: ['sparkbolt', 'thundercrack'],
+    movementBudget: 3,
   },
 ]
 
@@ -263,12 +266,12 @@ export const ENEMY_TEMPLATES: CharacterTemplate[] = [
     movementBudget: 2,
   },
   {
-    id: 'moss-golem',
-    name: 'Moss Golem',
-    emoji: '🌳',
-    element: 'earth',
-    maxHp: 12,
-    abilityIds: ['boulder', 'wall'],
+    id: 'tide-spirit',
+    name: 'Tide Spirit',
+    emoji: '🐚',
+    element: 'water',
+    maxHp: 8,
+    abilityIds: ['splash', 'torrent'],
     movementBudget: 1,
   },
 ]
@@ -296,7 +299,7 @@ export function instantiateCharacter(
 }
 
 export function buildStarterDeck(): Card[] {
-  const elements: Element[] = ['water', 'fire', 'lightning', 'earth']
+  const elements: Element[] = ['water', 'fire', 'lightning']
   const cards: Card[] = []
   let id = 0
   for (const element of elements) {

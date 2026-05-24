@@ -8,9 +8,10 @@ export interface EnemyComposition {
 }
 
 export const DEFAULT_ENEMY_COMPS: EnemyComposition[] = [
-  { name: 'Storm Trio', enemyTemplateIds: ['storm-sprite', 'ember-wisp', 'moss-golem'] },
+  { name: 'Mixed', enemyTemplateIds: ['storm-sprite', 'ember-wisp', 'tide-spirit'] },
   { name: 'Fire Trio', enemyTemplateIds: ['ember-wisp', 'ember-wisp', 'storm-sprite'] },
-  { name: 'Earth Trio', enemyTemplateIds: ['moss-golem', 'moss-golem', 'storm-sprite'] },
+  { name: 'Water Trio', enemyTemplateIds: ['tide-spirit', 'tide-spirit', 'storm-sprite'] },
+  { name: 'Storm Trio', enemyTemplateIds: ['storm-sprite', 'storm-sprite', 'ember-wisp'] },
 ]
 
 export interface TournamentConfig {

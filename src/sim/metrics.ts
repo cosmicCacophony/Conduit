@@ -1,3 +1,4 @@
+import { BONUS_TILES_PER_GAME } from '../grid/constants'
 import type { Element, ReactionType } from '../grid/types'
 import type { GameEvent, GameResult } from './runner'
 
@@ -31,6 +32,8 @@ export interface GameMetrics {
   cascadeDamageDealt: number
   cascadeDamageTaken: number
   cascadeDamagePct: number
+  bonusClaimsByPlayer: number
+  bonusClaimsByEnemy: number
 }
 
 const ZERO_REACTION: Record<ReactionType, number> = {
@@ -71,6 +74,8 @@ export function extractMetrics(result: GameResult): GameMetrics {
   let bigSpellCasts = 0
   let varianceTotal = 0
   let varianceCount = 0
+  let bonusClaimsByPlayer = 0
+  let bonusClaimsByEnemy = 0
 
   for (const e of result.events as GameEvent[]) {
     switch (e.type) {
@@ -111,6 +116,10 @@ export function extractMetrics(result: GameResult): GameMetrics {
       case 'actionVariance':
         varianceTotal += e.distinctChoices
         varianceCount++
+        break
+      case 'bonusClaimed':
+        if (e.byPlayer) bonusClaimsByPlayer++
+        else bonusClaimsByEnemy++
         break
     }
   }
@@ -155,6 +164,8 @@ export function extractMetrics(result: GameResult): GameMetrics {
     cascadeDamageDealt,
     cascadeDamageTaken,
     cascadeDamagePct,
+    bonusClaimsByPlayer,
+    bonusClaimsByEnemy,
   }
 }
 
@@ -180,6 +191,9 @@ export interface AggStats {
   avgCascadeDamagePct: number
   abilityCastsByName: Record<string, number>
   cascadeAuthorshipTotals: { player: number; enemy: number; mixed: number }
+  avgBonusClaimsByPlayer: number
+  avgBonusClaimsByEnemy: number
+  bonusPickupRate: number
 }
 
 export function aggregate(metrics: GameMetrics[]): AggStats {
@@ -204,6 +218,9 @@ export function aggregate(metrics: GameMetrics[]): AggStats {
       avgCascadeDamagePct: 0,
       abilityCastsByName: {},
       cascadeAuthorshipTotals: zeroAuthorship(),
+      avgBonusClaimsByPlayer: 0,
+      avgBonusClaimsByEnemy: 0,
+      bonusPickupRate: 0,
     }
   }
 
@@ -243,6 +260,13 @@ export function aggregate(metrics: GameMetrics[]): AggStats {
   const avgPlayerAuthoredCascadePct =
     authoredShareCount > 0 ? authoredShareTotal / authoredShareCount : 0
 
+  const avgBonusClaimsByPlayer = sum((m) => m.bonusClaimsByPlayer) / metrics.length
+  const avgBonusClaimsByEnemy = sum((m) => m.bonusClaimsByEnemy) / metrics.length
+  const bonusPickupRate =
+    BONUS_TILES_PER_GAME > 0
+      ? (avgBonusClaimsByPlayer + avgBonusClaimsByEnemy) / BONUS_TILES_PER_GAME
+      : 0
+
   return {
     games: metrics.length,
     wins,
@@ -263,5 +287,8 @@ export function aggregate(metrics: GameMetrics[]): AggStats {
     avgCascadeDamagePct: sum((m) => m.cascadeDamagePct) / metrics.length,
     abilityCastsByName,
     cascadeAuthorshipTotals,
+    avgBonusClaimsByPlayer,
+    avgBonusClaimsByEnemy,
+    bonusPickupRate,
   }
 }

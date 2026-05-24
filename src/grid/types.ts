@@ -81,6 +81,40 @@ export interface SelectedAction {
   abilityId: string
 }
 
+export type LogDetail =
+  | {
+      kind: 'cascade'
+      reactionType: ReactionType
+      primaryElement: Element
+      secondaryElement: Element
+      primaryTiles: Position[]
+      secondaryTiles: Position[]
+      splashTiles: Position[]
+      damagedCharIds: string[]
+    }
+  | {
+      kind: 'ability'
+      actorId: string
+      abilityId: string
+      element: Element
+      tiles: Position[]
+      damagedCharIds: string[]
+    }
+
+export interface LogEntry {
+  id: string
+  message: string
+  turn: number
+  detail?: LogDetail
+}
+
+export type BonusKind = 'mend'
+
+export interface BonusTile {
+  kind: BonusKind
+  position: Position
+}
+
 export interface BattleState {
   grid: Tile[][]
   width: number
@@ -95,9 +129,10 @@ export interface BattleState {
   windQueue: WindDirection[]
   turnNumber: number
   phase: BattlePhase
-  log: string[]
+  log: LogEntry[]
   actionOrder: string[]
   currentActorId: string | null
   selectedAction: SelectedAction | null
   pendingFlash: FlashEffect | null
+  bonusTiles: BonusTile[]
 }

@@ -1,5 +1,15 @@
 import { ELEMENT_ICONS } from '../../grid/constants'
-import type { GridCharacter, Tile } from '../../grid/types'
+import type { BonusKind, GridCharacter, Tile } from '../../grid/types'
+
+export type ReplayHighlight = 'primary' | 'secondary' | 'splash' | 'damaged' | 'dimmed'
+
+const BONUS_GLYPH: Record<BonusKind, string> = {
+  mend: '+',
+}
+
+const BONUS_LABEL: Record<BonusKind, string> = {
+  mend: 'Mend +3 HP',
+}
 
 type GridTileProps = {
   tile: Tile
@@ -9,6 +19,8 @@ type GridTileProps = {
   isAbilityTarget: boolean
   isHighlighted: boolean
   flashing: boolean
+  replayHighlight: ReplayHighlight | null
+  bonusKind: BonusKind | null
   onClick: () => void
 }
 
@@ -20,6 +32,8 @@ export function GridTile({
   isAbilityTarget,
   isHighlighted,
   flashing,
+  replayHighlight,
+  bonusKind,
   onClick,
 }: GridTileProps) {
   const classes = ['grid-tile']
@@ -32,6 +46,8 @@ export function GridTile({
   if (isAbilityTarget) classes.push('grid-tile--target')
   if (isHighlighted) classes.push('grid-tile--highlighted')
   if (flashing) classes.push('grid-tile--flash')
+  if (replayHighlight) classes.push(`grid-tile--replay-${replayHighlight}`)
+  if (bonusKind) classes.push(`grid-tile--bonus-${bonusKind}`)
 
   return (
     <button type="button" className={classes.join(' ')} onClick={onClick}>
@@ -43,6 +59,15 @@ export function GridTile({
       ) : null}
       {tile.ghostTerrain && (!tile.terrain || tile.ghostTerrain.element !== tile.terrain.element) ? (
         <span className="grid-tile__ghost">{ELEMENT_ICONS[tile.ghostTerrain.element]}</span>
+      ) : null}
+      {bonusKind ? (
+        <span
+          className={`grid-tile__bonus grid-tile__bonus--${bonusKind}`}
+          title={BONUS_LABEL[bonusKind]}
+          aria-label={BONUS_LABEL[bonusKind]}
+        >
+          {BONUS_GLYPH[bonusKind]}
+        </span>
       ) : null}
       {character ? (
         <span

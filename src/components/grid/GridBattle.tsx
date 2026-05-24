@@ -20,7 +20,7 @@ import {
   unassignCard,
 } from '../../grid/engine'
 import { computeGhostPreview } from '../../grid/flow'
-import type { BattleState, GridCharacter, Position } from '../../grid/types'
+import type { BattleState, GridCharacter, LogDetail, Position } from '../../grid/types'
 import { AbilityPanel } from './AbilityPanel'
 import { BattleGrid } from './BattleGrid'
 import { CardHand } from './CardHand'
@@ -37,6 +37,7 @@ type LocalUI = {
   isMovingMode: boolean
   flashTick: number
   flashPositions: Position[]
+  hoveredLogId: string | null
 }
 
 export function GridBattle({ onExit }: GridBattleProps) {
@@ -46,7 +47,14 @@ export function GridBattle({ onExit }: GridBattleProps) {
     isMovingMode: false,
     flashTick: 0,
     flashPositions: [],
+    hoveredLogId: null,
   })
+
+  const hoveredLogDetail = useMemo<LogDetail | null>(() => {
+    if (!ui.hoveredLogId) return null
+    const entry = state.log.find((e) => e.id === ui.hoveredLogId)
+    return entry?.detail ?? null
+  }, [ui.hoveredLogId, state.log])
 
   const currentActor = useMemo<GridCharacter | null>(() => {
     if (!state.currentActorId) return null
@@ -232,6 +240,7 @@ export function GridBattle({ onExit }: GridBattleProps) {
                 isMovingMode: false,
                 flashTick: 0,
                 flashPositions: [],
+                hoveredLogId: null,
               })
             }}
           >
@@ -265,14 +274,16 @@ export function GridBattle({ onExit }: GridBattleProps) {
             moveTargets={moveTargets}
             abilityTargets={abilityTargets}
             flashTiles={ui.flashPositions}
+            replayDetail={hoveredLogDetail}
             onTileClick={handleTileClick}
           />
 
           {state.phase === 'assign' ? (
             <div className="drift-assign-controls">
               <p className="muted">
-                Click a card, then click a character. Card value = mana. Highest card acts first.
-                Element match grants +1 mana.
+                Click a card, then click a character. Card value = Power for the turn. Power gates
+                abilities — cast any ability with cost ≤ Power. Highest Power acts first. Element
+                match: +2 Power. Mismatch: −1 (min 1).
               </p>
               <button
                 type="button"
@@ -318,7 +329,11 @@ export function GridBattle({ onExit }: GridBattleProps) {
             onSelectCard={handleSelectCard}
           />
         ) : null}
-        <TurnLog log={state.log} />
+        <TurnLog
+          log={state.log}
+          hoveredEntryId={ui.hoveredLogId}
+          onHoverEntry={(id) => setUI((u) => ({ ...u, hoveredLogId: id }))}
+        />
       </footer>
     </section>
   )

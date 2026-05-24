@@ -79,6 +79,7 @@ export function formatGlobalStats(result: TournamentResult): string {
     `Average cascades/game: ${fmtNum(all.avgCascades)}  |  Avg cascade damage: ${fmtNum(all.avgCascadeDamage)}`,
     `Average decision branching factor: ${fmtNum(all.avgBranchingFactor, 1)}  |  Distinct strategic picks/turn: ${fmtNum(all.avgDistinctChoicesPerTurn, 2)}`,
     `Player-authored cascade %: ${fmtPct(all.avgPlayerAuthoredCascadePct)}  |  Cascade dmg %: ${fmtPct(all.avgCascadeDamagePct)}  |  Big spells/game: ${fmtNum(all.avgBigSpellCastsPerGame, 2)}`,
+    `Bonus pickup rate: ${fmtPct(all.bonusPickupRate)} (player=${fmtNum(all.avgBonusClaimsByPlayer, 2)} enemy=${fmtNum(all.avgBonusClaimsByEnemy, 2)} per game)`,
     `Cascade authorship totals: player=${all.cascadeAuthorshipTotals.player} enemy=${all.cascadeAuthorshipTotals.enemy} mixed=${all.cascadeAuthorshipTotals.mixed}`,
     `Cascade type mix: ${Object.entries(all.cascadeMix)
       .map(([k, v]) => `${k}=${v}`)
@@ -282,6 +283,9 @@ function buildMarkdownReport(result: TournamentResult, variance: VarianceReport)
   lines.push(`- Average cascades/game: ${fmtNum(overall.avgCascades)}`)
   lines.push(`- Average cascade damage: ${fmtNum(overall.avgCascadeDamage)}`)
   lines.push(`- Average decision branching factor: ${fmtNum(overall.avgBranchingFactor, 1)}`)
+  lines.push(
+    `- Bonus pickup rate: ${fmtPct(overall.bonusPickupRate)} (player=${fmtNum(overall.avgBonusClaimsByPlayer, 2)}, enemy=${fmtNum(overall.avgBonusClaimsByEnemy, 2)} claims/game)`,
+  )
   lines.push('')
   lines.push('### Cascade Type Distribution')
   lines.push('')

@@ -64,7 +64,7 @@ export function CharacterRoster({
               <div className="roster__stats">
                 <span>HP {character.currentHp}/{character.maxHp}</span>
                 {state.phase !== 'assign' && state.currentActorId === character.id ? (
-                  <span>Mana {character.mana}</span>
+                  <span>Power {character.mana}</span>
                 ) : null}
                 {card ? (
                   <span className="roster__card-tag">

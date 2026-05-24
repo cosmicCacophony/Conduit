@@ -37,7 +37,7 @@ export function AbilityPanel({
         <span className="ability-panel__emoji">{actor.emoji}</span>
         <div>
           <strong>{actor.name}</strong>
-          <div className="ability-panel__mana">Mana: {actor.mana}</div>
+          <div className="ability-panel__power">Power: {actor.mana}</div>
         </div>
       </div>
       <div className="ability-panel__actions">
@@ -75,7 +75,7 @@ export function AbilityPanel({
               title={ability.description}
             >
               <strong>{ability.name}</strong>
-              <span className="ability-button__cost">{ability.manaCost} mana</span>
+              <span className="ability-button__cost">{ability.manaCost} power</span>
               <span className="ability-button__desc">{ability.description}</span>
             </button>
           )

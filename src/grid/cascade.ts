@@ -14,7 +14,12 @@ interface CascadeReaction {
   secondaryElement: Element
   primaryTiles: Position[]
   secondaryTiles: Position[]
+  splashTiles: Position[]
   damage: number
+}
+
+function halve(n: number): number {
+  return Math.max(1, Math.floor(n / 2))
 }
 
 interface CascadeResult {
@@ -106,12 +111,43 @@ export function detectCascades(grid: Tile[][]): {
           ? reaction.damage * Math.max(1, Math.ceil(chainSize / 2))
           : reaction.damage
 
+        const primaryKeySet = new Set(primaryTiles.map((p) => `${p.x},${p.y}`))
+        const splashSet = new Set<string>()
+        if (reaction.type === 'electrified' || reaction.type === 'plasma') {
+          for (const tilePos of primaryTiles) {
+            for (const { dx, dy } of NEIGHBORS) {
+              const sx = tilePos.x + dx
+              const sy = tilePos.y + dy
+              if (sx < 0 || sx >= GRID_WIDTH || sy < 0 || sy >= GRID_HEIGHT) continue
+              const sKey = `${sx},${sy}`
+              if (primaryKeySet.has(sKey)) continue
+              splashSet.add(sKey)
+            }
+          }
+        } else if (reaction.type === 'shatter') {
+          for (const tilePos of primaryTiles) {
+            for (const { dx, dy } of NEIGHBORS) {
+              const sx = tilePos.x + dx
+              const sy = tilePos.y + dy
+              if (sx < 0 || sx >= GRID_WIDTH || sy < 0 || sy >= GRID_HEIGHT) continue
+              const sKey = `${sx},${sy}`
+              if (primaryKeySet.has(sKey)) continue
+              splashSet.add(sKey)
+            }
+          }
+        }
+        const splashTiles: Position[] = [...splashSet].map((k) => {
+          const [xs, ys] = k.split(',')
+          return { x: Number(xs), y: Number(ys) }
+        })
+
         reactions.push({
           type: reaction.type,
           primaryElement: primary,
           secondaryElement: secondary,
           primaryTiles,
           secondaryTiles,
+          splashTiles,
           damage,
         })
 
@@ -139,15 +175,24 @@ export function resolveCascades(
 
   for (const reaction of reactions) {
     if (reaction.type === 'electrified' || reaction.type === 'plasma') {
-      const targetTiles = reaction.primaryTiles
-      const targetSet = new Set(targetTiles.map((p) => `${p.x},${p.y}`))
+      const primarySet = new Set(reaction.primaryTiles.map((p) => `${p.x},${p.y}`))
+      const splashSet = new Set(reaction.splashTiles.map((p) => `${p.x},${p.y}`))
       for (const character of characters) {
         if (character.currentHp <= 0) continue
         const key = `${character.position.x},${character.position.y}`
-        if (targetSet.has(key)) {
+        let amount = 0
+        if (primarySet.has(key)) {
+          // Primary tile: enemies take full, players take half (friendly fire)
+          amount = character.isPlayer ? halve(reaction.damage) : reaction.damage
+        } else if (splashSet.has(key) && character.isPlayer) {
+          // Splash radius: only damages allies (asymmetric). Reactions echo
+          // back toward the team that built the kill zone — quarter damage.
+          amount = halve(halve(reaction.damage))
+        }
+        if (amount > 0) {
           damageEvents.push({
             characterId: character.id,
-            amount: reaction.damage,
+            amount,
             reactionType: reaction.type,
           })
         }
@@ -158,19 +203,15 @@ export function resolveCascades(
           : `Plasma! ${reaction.primaryTiles.length}-tile fire chain ignites for ${reaction.damage}.`,
       )
     } else if (reaction.type === 'shatter') {
-      const adjacencySet = new Set<string>()
-      for (const tilePos of reaction.primaryTiles) {
-        for (const { dx, dy } of NEIGHBORS) {
-          adjacencySet.add(`${tilePos.x + dx},${tilePos.y + dy}`)
-        }
-      }
+      const splashSet = new Set(reaction.splashTiles.map((p) => `${p.x},${p.y}`))
       for (const character of characters) {
         if (character.currentHp <= 0) continue
         const key = `${character.position.x},${character.position.y}`
-        if (adjacencySet.has(key)) {
+        if (splashSet.has(key)) {
+          const amount = character.isPlayer ? halve(reaction.damage) : reaction.damage
           damageEvents.push({
             characterId: character.id,
-            amount: reaction.damage,
+            amount,
             reactionType: reaction.type,
           })
         }

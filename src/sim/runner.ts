@@ -13,7 +13,7 @@ import {
   selectAbility,
 } from '../grid/engine'
 import { detectCascades } from '../grid/cascade'
-import type { BattleState, Element, ReactionType } from '../grid/types'
+import type { BattleState, BonusKind, Element, ReactionType } from '../grid/types'
 import { mulberry32 } from './random'
 import { ALL_STRATEGIES, type Strategy } from './strategies'
 
@@ -44,6 +44,7 @@ export type GameEvent =
   | { type: 'decisionCount'; turn: number; actorIsPlayer: boolean; legalActions: number }
   | { type: 'actionVariance'; turn: number; distinctChoices: number }
   | { type: 'abilityCast'; turn: number; abilityId: string; manaCost: number; byPlayer: true }
+  | { type: 'bonusClaimed'; turn: number; bonusKind: BonusKind; byPlayer: boolean }
 
 export interface RunOptions {
   seed: number
@@ -74,6 +75,26 @@ function compareTerrain(before: BattleState, after: BattleState): Array<{ elemen
   for (const el of ['water', 'fire', 'lightning', 'earth'] as const) {
     const diff = a[el] - b[el]
     if (diff > 0) out.push({ element: el, tilesAdded: diff })
+  }
+  return out
+}
+
+function countBonusesByKind(state: BattleState): Record<BonusKind, number> {
+  const counts: Record<BonusKind, number> = { mend: 0 }
+  for (const b of state.bonusTiles) counts[b.kind]++
+  return counts
+}
+
+function diffBonusClaims(
+  before: BattleState,
+  after: BattleState,
+): Array<{ kind: BonusKind; count: number }> {
+  const b = countBonusesByKind(before)
+  const a = countBonusesByKind(after)
+  const out: Array<{ kind: BonusKind; count: number }> = []
+  for (const k of ['mend'] as const) {
+    const diff = b[k] - a[k]
+    if (diff > 0) out.push({ kind: k, count: diff })
   }
   return out
 }
@@ -152,7 +173,19 @@ export function playGame(opts: RunOptions): GameResult {
       if (!actor.hasMoved) {
         const movePos = opts.strategy.selectMove(state, actor, rng)
         if (movePos) {
+          const beforeMove = state
           state = moveCharacter(state, movePos)
+          const claimed = diffBonusClaims(beforeMove, state)
+          for (const c of claimed) {
+            for (let i = 0; i < c.count; i++) {
+              events.push({
+                type: 'bonusClaimed',
+                turn: state.turnNumber,
+                bonusKind: c.kind,
+                byPlayer: true,
+              })
+            }
+          }
         }
       }
 
@@ -240,6 +273,17 @@ export function playGame(opts: RunOptions): GameResult {
           tilesAdded: p.tilesAdded,
           placedBy: 'enemy',
         })
+      }
+      const claimed = diffBonusClaims(before, state)
+      for (const c of claimed) {
+        for (let i = 0; i < c.count; i++) {
+          events.push({
+            type: 'bonusClaimed',
+            turn: state.turnNumber,
+            bonusKind: c.kind,
+            byPlayer: false,
+          })
+        }
       }
       const playerHpBefore = totalHp(before.playerChars)
       const playerHpAfter = totalHp(state.playerChars)
